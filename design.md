@@ -416,13 +416,20 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 
 - 界面文案一律从 `src/i18n/locales/en.js` import 后来定位，不硬编码字面量；
 - 组件上的 `data-*`（`data-slot` / `data-header-date` / `data-snap` / `data-action`）是**测试锚点**，改 UI 时不能顺手删；
-- `--stop-at=N` 只跑前 N 步（单步调试用），`--applog` 失败时打印页面日志，`--slow=MS` 给人眼看，`--url=` 可打已部署的站点；
+- `--stop-at=N` 只跑前 N 步（单步调试用），`--applog` 失败时打印页面日志，`--slow=MS` 给人眼看，`--url=` 可打已部署的站点，`--no-sandbox` 只在显式传入时给 Chrome 追加 `--no-sandbox --disable-dev-shm-usage`（Linux 容器里起不来才用，不传时本机行为一字不变）；
 - 它自带随机端口的静态服务器，不碰本地 3002/3003。
 
 运维脚本（本地常驻才需要）：
 
 - `start-server.bat` / `stop-server.bat` — 按端口探测与反查 PID，两者都跟随 `PORT`（默认 3002），注释保持纯 ASCII（`.bat` 走 OEM 代码页，中文注释会被写成 `?`）；
 - `EventLogger-AutoStart.vbs` — 登录自启是个人机器上的便利脚本，内含本机绝对路径，**不进仓库**（已列进 `.gitignore`），需要的人按 README 说明自建。
+
+发布到公网有两条路，两条都要过同一条校验链（`build` → `csp:check`）：
+
+- **本机直发**：`npx wrangler login` 一次，然后 `npm run deploy`。凭证只留在本机（`.wrangler/state`，已 gitignore）。
+- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（9 项不变量 + build + csp:check，阻断）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 15 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
+
+Actions 需要三个仓库级配置（Settings → Secrets and variables → Actions）：secret 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，加上变量的 `DEPLOY_ENABLED`。`deploy` job 的条件是 `github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true'` —— **变量缺失或值不是字符串 `true` 时，workflow 照样检查和构建，但线上一个字节都不会变**，这就是发布总闸（job 级 `if` 读不到 `env` 上下文，所以分支名在 `if` 里写成字面量，改默认分支要同时改 `env.PRODUCTION_BRANCH` 与那行 `if`）。Pages 项目由 workflow 首次 `wrangler pages project create` 自动创建，已存在则跳过。
 
 > 端口默认值 3002 散在 `server.js`（`PORT` 可覆盖）/ 两个 `.bat`（`PORT` 可覆盖）/ `vite.config.js` 的 dev proxy（写死）/ 本文档几处，无共享配置源。它只影响"本机跑静态服务 + 旧数据迁移"这条路，公网部署与之无关。
 >
@@ -520,6 +527,9 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 | `index.html` | 42 | 根节点 + React 挂载前的内联语言/标题脚本（哈希必须与 `_headers` 同步，§7.3） |
 | `public/_headers` | — | Cloudflare Pages 专用：CSP（含内联脚本 sha256）+ 缓存策略 + 权限策略 |
 | `public/robots.txt` | — | 禁止收录（工具站，不是内容站） |
+| `.github/workflows/ci-and-deploy.yml` | 162 | checks / browser-smoke / deploy 三个 job；`DEPLOY_ENABLED` 是发布总闸（见 §10） |
+| `README.md` | 157 | **默认英文版**；顶部语言条在中 / 英 / 日之间切换 |
+| `README.zh-CN.md` · `README.ja-JP.md` | 158 · 157 | 中文版、日语版；三份结构 1:1，改内容必须三份同步 |
 
 ### `src/` 入口与页面
 
@@ -595,7 +605,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 861 | **真浏览器 15 步**：首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移 |
+| `scripts/e2e-smoke.mjs` | 865 | **真浏览器 15 步**：首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移 |
 | `scripts/check-book-store.mjs` | 199 | 设置守门、书名与文件名清洗、v1/v2 信封、导入防撞 |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |

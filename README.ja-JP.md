@@ -1,0 +1,156 @@
+# イベントロガー（Event Logger）
+
+[English](README.md) · [简体中文](README.zh-CN.md) · **日本語**
+
+**自分専用**の一日時間記録ツール：1 日を 10 分刻みに区切り、ドラッグして「いつ何をしたか」を記録し、カテゴリ（仕事 / 私生活 / 学習）別に統計と推移を見る。
+
+現在はそのまま公開ネットに出せる PWA になっている —— しかも **サーバー側にはユーザーデータを一切保存しない**：URL は公開で誰でもアクセスでき、ページのコードは誰でもダウンロードできるが、あなたが記録した一つのイベントは自分のブラウザの中にしか存在しない。
+
+---
+
+## 三つの硬い約束
+
+| # | 約束 | 実装方法 |
+|---|---|---|
+| 1 | **データはユーザー側のみに保存**、サーバーはゼロストレージ | すべての読み書きはブラウザの IndexedDB（DB 名 `event-logger`）経由。公開されるのは静的ファイルのみ：サイト全体に POST / PUT / DELETE は一つもない。`npm run smoke` が全てのネットワークリクエストを捕捉し、「全て GET、リクエストボディなし、サードパーティなし、URL にあなたの内容が含まれない」を再検証する |
+| 2 | **EventBook ごとに週開始日と言語を持つ** | `books` store のレコード 1 件 = EventBook 1 冊で、`settings.weekStartsOn`（0〜6）と `settings.language`（zh / en / ja）は**その本**的属性。本の切替＝基準の切替：週ビュー、カレンダーのヘッダー、統計期間、ISO 週番号すべてに追随する |
+| 3 | **定期バックアップ、過去バージョンの閲覧・復元が可能**（復元は不可逆） | 自動スナップショット（編集中は 15 分ごと）＋起動時の補完スナップショット＋手動保存。「このバージョンを見る」＝読み取り専用の再生。「このバージョンを復元」＝まず現在の内容を自動で `pre-restore` として保存してから、古い内容を書き戻す。スナップショット連鎖は**追記のみで削除しない**ため、復元した後も元へ戻せる |
+
+---
+
+## 公開ネットへリリース（Cloudflare Pages）
+
+二つの方法のうちどちらか：GitHub Actions で push 時に自動リリース（推奨）、または自分の PC で一度手動リリース。
+
+### 方法 A：push で自動リリース（GitHub Actions）
+
+リポジトリに [`.github/workflows/ci-and-deploy.yml`](.github/workflows/ci-and-deploy.yml) 同梱済み。`master` への push ごとに：9 項目の不変条件チェック → ビルド → CSP ハッシュ検証。成果物は artifact としてデプロイジョブに引き渡される（**リリースされるのはチェックを通ったあのコピーそのもの**であり、再ビルドしたものではない）、その後 `wrangler` が Cloudflare Pages へ公開する。
+
+あなたが設定するのは三つだけ、ページは二つ：
+
+**① Cloudflare で API Token を作成** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → `Create Token`、権限は **Account · Cloudflare Pages · Edit**（カスタムドメインを紐付けるなら **Zone · Read** も追加）、Account 範囲は自分のアカウントに限定。**Account ID** は Cloudflare コンソールのどのページでも右サイドバーにある。
+
+**② GitHub に Repository secrets を二つ作成** — [Settings → Secrets and variables → Actions](https://github.com/microsheen/event-logger/settings/secrets/actions)：
+
+| Secret 名 | 値 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | 前の手順の token |
+| `CLOUDFLARE_ACCOUNT_ID` | あなたの Account ID |
+
+**③ 同じページの Variables タブに切り替えて `DEPLOY_ENABLED` を追加** — これはマスタースイッチ：**値がちょうど文字列 `true` のときだけデプロイジョブが走る**。未設定、または `false` なら、workflow はチェックとビルドをそのまま実行するが、本番には 1 バイトも変化しない。つまり順番は：secret を貼る → `DEPLOY_ENABLED` を `true` にする → 次の `master` push でリリースされる。
+
+```bash
+gh variable set DEPLOY_ENABLED --body true     # リリース開始（Web の Variables で入力してもよい）
+gh variable set DEPLOY_ENABLED --body false    # ワンクリックでリリース停止
+```
+
+Pages プロジェクトを手作業で作る必要なし：workflow の初回実行が `wrangler pages project create event-logger --production-branch master` を実行し、既にあればスキップする。公開先は常に <https://event-logger.pages.dev>、加えて各デプロイごとに `https://<commit-sha>.event-logger.pages.dev` が一つずつ付く；Pages ダッシュボードから本番を任意のデプロイへワンクリックでロールバックできる。
+
+他にも `browser-smoke` ジョブがあり、Linux の headless Chrome で下記の 15 ステップエンドツーエンドを実行する。現在は `continue-on-error: true` を付けているので、**赤になってもデプロイは止めない**（コンテナ内では Chrome のサンドボックスが時々不安定になるため）。CI で安定していると確認できたら、その行を削除すればハードゲートになる。
+
+### 方法 B：自分の PC で一度リリース
+
+```bash
+npm install
+npx wrangler login     # ブラウザで一度だけ認可；認証情報はローカルにのみ保存
+npm run deploy
+```
+
+`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`。初回は `event-logger` プロジェクトを作るか聞いてくるので、Enter で確定。
+
+### デプロイ前に読むべき三つのこと
+
+1. **CSP に sha256 が一つある。** `public/_headers` の `script-src` は、`index.html` 内の「React マウント前に言語を決める」インラインスクリプトをホワイトリストに入れている。そのスクリプトを変えたら必ず `npm run csp:check` を走らせてハッシュを同期しないと、本番でインラインスクリプトが CSP にブロックされ、画面が真っ白になる。`npm run deploy` は `csp:check` をデプロイの前に置いてあるので回避できない。
+2. **ポート 3002 はローカルの話で、本番とは無関係。** 本番にバックエンドプロセスはない。`server.js` と 2 つの `.bat` はいずれも `PORT` を読む（デフォルト 3002）；`vite.config.js` の dev proxy 先とこの文書にだけ 3002 がハードコードのままで残っている —— ローカルでポートを変えるなら `set PORT=8080 && npm start` に加え、その二箇所も同期すること。
+3. **`server.js` の `/api/legacy-data` は読み取り専用**、「この PC に古い `data.json` が残っている場合、初回起動ガイドからワンクリックで取り込む」ためだけのもの。公開ネットにこの API はなく、フロントエンドは localhost 以外のドメインではプローブをスキップし、入口自体を隠す（`src/utils/legacyFetch.js` を参照）。
+
+---
+
+## ローカル開発と実行
+
+```bash
+npm run dev      # Vite 5173（/api は 3002 へプロキシ；バックエンドは古い data.json を移行するときだけ必要）
+npm run build    # フロントエンドの成果物 -> dist/（PWA の sw.js / manifest も同時に生成）
+npm start        # node server.js：静的ファイル配信 + 読み取り専用の legacy プローブ、既定 http://localhost:3002
+```
+
+`start-server.bat` / `stop-server.bat` は今も使える（ポートから PID を逆引きする）が、現在はただの「ローカル静的ファイルサーバー」にすぎない —— サービスを止めてもデータはこの PC から出ない。起動時自動開始用の `EventLogger-AutoStart.vbs` は個人マシンのための簡易スクリプトで、ローカルの絶対パスがハードコードされているため、**リポジトリには入れない**（`.gitignore` に記載済み）。自動開始が欲しいなら自分のマシンに同じ名前の vbs を作り、中身は `ws.Run "<このリポジトリのパス>\start-server.bat", 0, False` だけ。
+
+---
+
+## データの実際の置き場所
+
+ブラウザの IndexedDB、DB 名 `event-logger`（バージョン 1）、4 つの store：
+
+| store | keyPath | 内容 |
+|---|---|---|
+| `books` | `id` | 各 EventBook の名前 + 設定（週開始日、言語、タイムライン表示、統計プリセット）+ タイムスタンプ |
+| `data` | `bookId` | その本の現在の `events` / `templates`、加えて `rev`（書き込みごとに +1）と `updatedAt` |
+| `snapshots` | `id` | 過去バージョン：各々に完全な payload を持ち、そのまま再生できる |
+| `meta` | `key` | バックアップフォルダのハンドル（`backupDirectory`） |
+
+- 初回起動は「初回ガイド」が走る：最初の EventBook を作成、または（手元にあれば）古い `data.json` を取り込む。
+- エクスポート / インポートはトップバーにある：今の本だけ、または全冊まとめて。インポートは**常に新しい EventBook として追加**され、既存の内容を絶対に上書きしない。
+- 端末やブラウザを乗り換える唯一の方法はエクスポート → インポート —— サーバー側に二冊目のコピーはない。
+
+### 過去バージョンと保存ポリシー
+
+スナップショットの `reason` は列挙型：`interval`（15 分周期）、`startup`（最後から 24h 以上空いたときの補完）、`manual`（「💾 いま保存」を押した）、`import`（インポート時）、`pre-restore` / `restored-from`（復元操作が残す一組）。
+
+削減は階層式：7 日以内は全部残す → 8〜30 日は暦日ごとに最初の 1 件 → 31〜365 日は月ごとに最初の 1 件 → 総量上限 500 件。`manual` / `import` / `pre-restore` の三種類は**保護対象**で、削減による削除は絶対に起きない。指紋（canonical hash）が同じなら重複保存しない。
+
+### 任意：ローカルのバックアップフォルダへミラー
+
+履歴パネルでフォルダを選択できる（Chrome / Edge の File System Access API が必要）。設定後は各スナップショットがファイルとしても書き出される：
+
+```
+EventLogger Backups/
+├── manifest.json                    #  book名 <-> ディレクトリ、各スナップショットの指紋
+└── <book name>/latest.json + snapshots/<ISO>.json
+```
+
+このフォルダはあなたのもの（外付け HDD、クラウド同期、NAS なんでも可）。ブラウザのデータを消去しても、全てを失うわけではない。書き込み専用：フォルダを消してもアプリの動作には影響しない。
+
+### ⚠️ データを失うケース
+
+- **ブラウザデータの消去 / ブラウザのアンインストール** —— IndexedDB も一緒に消える。公開デプロイにはサーバー側のコピーがないので復旧手段がない。
+- **シークレットウィンドウ** —— ウィンドウを閉じれば消える；IndexedDB が完全に使えない場合、UI は保存成功を偽装せず、そのまま警告を表示する。
+- **ストレージ逼迫時の追放**（特に iOS Safari / モバイル）—— アプリは `persisted` ストレージを要求するが、最終判断はブラウザ側。
+
+したがって：長期のデータは「エクスポートファイル」または「ミラーバックアップフォルダ」の少なくとも一方に頼ってください。
+
+---
+
+## コードを変える前後に実行する
+
+```bash
+npm run check     # 9 項目の純関数・整合性チェック（i18n / 並び順 / スロット / クリップボード /
+                  #   日跨ぎドラッグ / 週基準 / スナップショットポリシー / EventBook store / React import）
+npm run smoke     # headless Chrome エンドツーエンド 15 ステップ（実際のマウスドラッグ + IndexedDB 直接読み取り + ネットワーク指紋）
+npm run csp:check # インラインスクリプトのハッシュが public/_headers と一致するか
+```
+
+`npm run smoke` は上記の三つの約束をそのまま検証する：本を作成 → 各本の週開始日と言語がサイト全体に本当に反映されるか → ドラッグでイベント作成 → ゼロストレージの指紋 → 手動保存と hash 重複排除 → スナップショットの構造不変条件 → 内容変更後に古いバージョンを再生、再生中の書き込みは全てブロック → 復元（不可逆 + 自動 pre-restore）→ 2 冊目のデータ分離 → 閉じて開いてもデータが残っている + PWA 登録 → 全行程で非 GET リクエストがゼロだったことの最終確認。
+
+オプション：`--stop-at=N` 最初の N ステップだけ、`--applog` 失敗時にページログを出す、`--slow=MS` 人の目用に遅くする、`--no-csp` CSP を無効化、`--url=` デプロイ済みサイトを対象にする、`--no-sandbox`（Linux / コンテナで Chrome が起動しないときのみ必要；CI はこれを使っている）。
+
+---
+
+## プライバシーの境界（正直版）
+
+- ページはサードパーティリクエストを一切発行しない：アナリティクスなし、CDN なし、外部フォント/画像なし、全アセット同一オリジン。
+- イベント内容と EventBook の名前は**URL にもリクエストボディにも現れない**（スモークテストが一本ずつアサートしている）。
+- ただし CDN エッジノードは標準的なアクセスログ（IP、User-Agent、要求された静的パス）を残す。「サーバーがユーザーデータを保存しない」とは業務データの話で、ゼロログイングを意味しない。
+- `robots.txt` は `Allow: /` —— サーバー側にはそもそもインデックス対象のコンテンツがない。
+
+---
+
+## 詳細
+
+設計意図と不変条件のリストは `design.md`（**現状は中国語**；データモデル・週基準・スナップショットポリシーを変える前に §11 を読むこと）。
+
+---
+
+## ライセンス
+
+MIT、[`LICENSE`](LICENSE) を参照。

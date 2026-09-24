@@ -4,6 +4,7 @@
 //   npm run smoke                                   自带静态服务器发 dist/（并套上 public/_headers 的 CSP）
 //   npm run smoke -- --url=http://localhost:3002     打已经在跑的服务器
 //   npm run smoke -- --headed --keep --slow=60       有头 + 保留临时 profile + 每步慢放 60ms
+//   npm run smoke -- --no-sandbox                       CI/容器里 Chrome 起不来时加（同时带 --disable-dev-shm-usage）
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -428,6 +429,9 @@ const flags = [
   '--disable-extensions', '--disable-translate', '--hide-scrollbars', '--mute-audio',
   '--window-size=1600,1050', '--window-position=0,0',
   '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling',
+  // CI/Linux 容器里 Chrome 常需要放弃沙箱才能起头less；只在显式传 --no-sandbox 时生效，本机默认路径不变。
+  arg('no-sandbox') ? '--no-sandbox' : null,
+  arg('no-sandbox') ? '--disable-dev-shm-usage' : null,
   '--disable-renderer-backgrounding', '--disable-hang-monitor',
   arg('headed') ? null : '--headless=new',
   'about:blank',

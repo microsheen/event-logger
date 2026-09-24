@@ -1,127 +1,156 @@
-# 每日事件记录器（Event Logger）
+# Event Logger
 
-一个**单人自用**的每日时间记录工具：一天切成 10 分钟一格，拖拽记录"什么时间做了什么"，再按类别（工作 / 生活 / 学习）看统计与趋势。
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja-JP.md)
 
-现在它是一个可以直接发到公网的 PWA —— 而且**服务器上不存放任何用户数据**：网址可以公开访问，页面代码谁都能下载，但你记下的每一个事件只待在你自己的浏览器里。
+A **single-user** daily time tracker: each day is cut into 10-minute slots, drag to record "what did what when", then read statistics and trends per category (Work / Life / Study).
+
+It is now a PWA that can be published to the public internet — and **the server stores no user data at all**: the URL is openly reachable, the page code is downloadable by anyone, but every event you record stays in your own browser.
 
 ---
 
-## 三条硬承诺
+## Three hard promises
 
-| # | 承诺 | 落地方式 |
+| # | Promise | How it is actually implemented |
 |---|---|---|
-| 1 | **数据只存在用户端**，服务器零存储 | 所有读写走浏览器 IndexedDB（库名 `event-logger`）。线上只有静态文件：全站没有任何 POST / PUT / DELETE。`npm run smoke` 会把每一条网络请求抓出来复核"全部 GET、零请求体、零第三方、URL 里没有你的内容" |
-| 2 | **每本 EventBook 自带周开始日期与语言** | `books` store 里一条记录 = 一本 EventBook，`settings.weekStartsOn`（0–6）与 `settings.language`（zh / en / ja）是**这本书**的属性。换书即换口径：周视图、日历表头、统计区间、ISO 周号全部跟着走 |
-| 3 | **定期备份，历史版本可看可回**（恢复不可逆） | 自动快照（连续编辑期间每 15 分钟一份）+ 启动补快照 + 手动存档。"查看此版本"= 只读回放；"恢复此版本"= 先把当前内容自动存成 `pre-restore` 再落回旧内容。快照链**只追加不删除**，所以恢复之后还能再恢复回来 |
+| 1 | **Data lives only on the user's device**, zero server storage | Every read and write goes to browser IndexedDB (database `event-logger`). Production ships static files only: there is not a single POST / PUT / DELETE anywhere. `npm run smoke` captures every network request and re-verifies "all GET, zero request bodies, zero third parties, your content never appears in a URL" |
+| 2 | **Each EventBook carries its own week start and language** | One record in the `books` store = one EventBook, where `settings.weekStartsOn` (0–6) and `settings.language` (zh / en / ja) are properties of **that book**. Switch book, switch convention: week view, calendar headers, statistical ranges and ISO week numbers all follow it |
+| 3 | **Periodic backups; past versions viewable and restorable** (restore is irreversible) | Automatic snapshots (one every 15 minutes while editing continues) + a catch-up snapshot at startup + manual saves. "View this version" = read-only replay. "Restore this version" = the current content is first saved automatically as `pre-restore`, then the old content is written back. The snapshot chain is **append-only**, so after a restore you can still restore back |
 
 ---
 
-## 发布到公网（Cloudflare Pages）
+## Publishing to the internet (Cloudflare Pages)
+
+Two routes, pick one: GitHub Actions publishes automatically on push (recommended), or you publish once manually from your own machine.
+
+### Route A: publish on push (GitHub Actions)
+
+The repo ships [`.github/workflows/ci-and-deploy.yml`](.github/workflows/ci-and-deploy.yml). Every push to `master`: run the 9 invariant checks → build → verify the CSP hash; the build output is handed to the deploy job as an artifact (**what goes live is exactly the copy that passed the checks**, not a rebuild), and `wrangler` then publishes it to Cloudflare Pages.
+
+You only have to fill in three things, across two pages:
+
+**① Create an API Token in Cloudflare** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → `Create Token`, permission **Account · Cloudflare Pages · Edit** (add **Zone · Read** if you bind a custom domain), scoped to your own account. The **Account ID** sits in the right-hand sidebar of any page in the Cloudflare console.
+
+**② Create two Repository secrets in GitHub** — [Settings → Secrets and variables → Actions](https://github.com/microsheen/event-logger/settings/secrets/actions):
+
+| Secret name | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | the token from the previous step |
+| `CLOUDFLARE_ACCOUNT_ID` | your Account ID |
+
+**③ On the same page, switch to the Variables tab and add `DEPLOY_ENABLED`** — this is the master switch: **the deploy job only runs when the value is exactly the string `true`**. Unset, or set to `false`, and the workflow still checks and builds, but not one byte changes in production. So the order is: paste the secrets, then set `DEPLOY_ENABLED` to `true`, and the next push to `master` publishes.
+
+```bash
+gh variable set DEPLOY_ENABLED --body true     # start publishing (or just type it in the Variables web UI)
+gh variable set DEPLOY_ENABLED --body false    # stop publishing with one switch
+```
+
+You do not have to create the Pages project by hand: the first workflow run executes `wrangler pages project create event-logger --production-branch master` and skips it if it already exists. The published address is always <https://event-logger.pages.dev>, and each individual deployment also gets its own `https://<commit-sha>.event-logger.pages.dev`; the Pages dashboard can roll production back to any deployment in one click.
+
+There is also a `browser-smoke` job that runs the 15-step end-to-end below under headless Chrome on Linux. It currently carries `continue-on-error: true`, which means **a red run does not block the deploy** (Chrome's sandbox misbehaves occasionally inside containers). Once you are satisfied it is stable in CI, delete that line and it becomes a hard gate.
+
+### Route B: publish once from your own machine
 
 ```bash
 npm install
-npx wrangler login     # 浏览器里授权一次，凭证存在本机
+npx wrangler login     # authorise once in the browser; credentials stay on this machine
 npm run deploy
 ```
 
-`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`。
-第一次会问要不要创建 `event-logger` 这个 Pages 项目，回车确认即可；之后固定输出到一个 `*.pages.dev` 地址（可在 Pages 面板绑自己的域名）。
+`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`. The first run asks whether to create the `event-logger` project; press Enter to confirm.
 
-想改成"推代码自动发布"也可以：把仓库连到 Pages，构建命令 `npm run build`、输出目录 `dist`，效果一样。
+### Three things to read before deploying
 
-### 部署前必读的三件事
-
-1. **CSP 里有一个 sha256。** `public/_headers` 的 `script-src` 白名单了 `index.html` 里那段"React 挂载前定语言"的内联脚本。改了那段脚本就必须跑 `npm run csp:check` 同步哈希，否则线上内联脚本被 CSP 拦掉、界面白屏。`npm run deploy` 已经把 `csp:check` 排在部署前面，绕不过去。
-2. **端口 3002 是本地的事，和线上无关。** 线上没有后端进程。`server.js` 和两个 `.bat` 都读 `PORT`（默认 3002），只有 `vite.config.js` 的 dev proxy 目标与本文档还写死着 3002——本地要换端口，除了 `set PORT=8080 && npm start`，还得同步那两处。
-3. **`server.js` 上的 `/api/legacy-data` 是只读的**，仅用于"本机还留着旧版 `data.json` 时，首次启动引导里一键把它导进来"。公网没有这个接口，前端在非 localhost 域名下会直接跳过探测、隐藏该入口（见 `src/utils/legacyFetch.js`）。
+1. **There is a sha256 in the CSP.** `script-src` in `public/_headers` whitelists the inline "set the language before React mounts" script in `index.html`. If you change that script you must run `npm run csp:check` to sync the hash, otherwise CSP blocks the inline script in production and the UI stays blank. `npm run deploy` already puts `csp:check` ahead of the deploy, so you cannot skip it.
+2. **Port 3002 is a local concern, unrelated to production.** There is no backend process in production. `server.js` and both `.bat` files read `PORT` (default 3002); only the dev proxy target in `vite.config.js` and this document still hard-code 3002 — locally, to move port, besides `set PORT=8080 && npm start` you must sync those two places.
+3. **`/api/legacy-data` on `server.js` is read-only**, used solely for "if this machine still has the old `data.json`, import it in one click from the first-run onboarding". It does not exist on the public internet, and the frontend skips the probe and hides the entry on any non-localhost hostname (see `src/utils/legacyFetch.js`).
 
 ---
 
-## 本地开发与运行
+## Local development and running
 
 ```bash
-npm run dev      # Vite 5173（/api 代理到 3002，只有要迁移旧 data.json 时才需要后端）
-npm run build    # 前端产物 → dist/（PWA 的 sw.js / manifest 一起生成）
-npm start        # node server.js：只发静态文件 + 只读 legacy 探测，默认 http://localhost:3002
+npm run dev      # Vite on 5173 (/api proxied to 3002; the backend is only needed to migrate an old data.json)
+npm run build    # frontend output -> dist/ (the PWA's sw.js / manifest are generated with it)
+npm start        # node server.js: static files + a read-only legacy probe, default http://localhost:3002
 ```
 
-`start-server.bat` / `stop-server.bat` 仍然可用（按端口探测、反查 PID），但现在它只是一个"本地静态文件服务器"——停掉服务，数据也不会离开这台机器。开机自启那个 `EventLogger-AutoStart.vbs` 是个人机器上的便利脚本，里面写死了本机绝对路径，**不进仓库**（已列进 `.gitignore`）；要自启就在本机自建一个同名 vbs，内容只是 `ws.Run "<本仓库路径>\start-server.bat", 0, False`。
+`start-server.bat` / `stop-server.bat` still work (they probe by port and look the PID up), but today they are just "a local static file server" — stop the service and your data does not leave this machine either. The `EventLogger-AutoStart.vbs` boot-login script is a convenience for a personal machine, it hard-codes absolute local paths, and it is **not in the repo** (it is listed in `.gitignore`); if you want autostart, create a vbs with the same name on your own machine containing only `ws.Run "<path to this repo>\start-server.bat", 0, False`.
 
 ---
 
-## 数据到底存在哪
+## Where the data actually lives
 
-浏览器 IndexedDB，库 `event-logger`（版本 1），四个 store：
+Browser IndexedDB, database `event-logger` (version 1), four stores:
 
-| store | keyPath | 内容 |
+| store | keyPath | contents |
 |---|---|---|
-| `books` | `id` | 每本 EventBook 的名称 + 设置（周开始日、语言、时间轴视口、统计档位）+ 时间戳 |
-| `data` | `bookId` | 这本书当前的 `events` / `templates`，外加 `rev`（每次写 +1）与 `updatedAt` |
-| `snapshots` | `id` | 历史版本：每份都自带完整 payload，可直接回放 |
-| `meta` | `key` | 备份文件夹句柄（`backupDirectory`） |
+| `books` | `id` | each EventBook's name + settings (week start, language, timeline viewport, statistics presets) + timestamps |
+| `data` | `bookId` | this book's current `events` / `templates`, plus `rev` (+1 on every write) and `updatedAt` |
+| `snapshots` | `id` | past versions: each one carries a complete payload and can be replayed directly |
+| `meta` | `key` | the backup folder handle (`backupDirectory`) |
 
-- 首次启动会走"首启引导"：新建第一本 EventBook，或者（本机有的话）导入旧版 `data.json`。
-- 导出 / 导入都在顶栏：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。**
-- 换设备 / 换浏览器的唯一办法就是导出再导入 —— 服务器上没有第二份可以拉。
+- The first launch runs the onboarding: create the first EventBook, or — if one exists on this machine — import the old `data.json`.
+- Export / import live in the top bar: export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.**
+- The only way to move between devices or browsers is export then import — there is no second copy on a server to pull.
 
-### 历史版本与保留策略
+### Past versions and the retention policy
 
-快照的 `reason` 是枚举：`interval`（15 分钟节奏）、`startup`（距上一份超过 24h 时补）、`manual`（点了"💾 立即存档"）、`import`（导入时）、`pre-restore` / `restored-from`（恢复动作留下的一对）。
+A snapshot's `reason` is an enum: `interval` (the 15-minute cadence), `startup` (catch-up when the last snapshot is more than 24h old), `manual` (you clicked "💾 Save now"), `import` (during an import), `pre-restore` / `restored-from` (the pair left behind by a restore).
 
-淘汰按分层：7 天内全留 → 8–30 天每个自然日留最早一份 → 31–365 天每个月留最早一份 → 总量上限 500 份。`manual` / `import` / `pre-restore` 三类**受保护**，淘汰永不删它们。指纹（canonical hash）相同则不重复存档。
+Eviction is tiered: keep everything within 7 days → for days 8–30 keep the earliest snapshot of each calendar day → for days 31–365 keep the earliest of each month → hard cap of 500 snapshots. The three reasons `manual` / `import` / `pre-restore` are **protected**; eviction never deletes them. If the fingerprint (canonical hash) is identical, no duplicate snapshot is stored.
 
-### 可选：镜像到一个本地备份文件夹
+### Optional: mirror to a local backup folder
 
-历史面板里可以选一个文件夹（需要 Chrome / Edge 的 File System Access API），之后每份快照会同步落成文件：
+In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file:
 
 ```
 EventLogger Backups/
-├── manifest.json                    # 书名 ↔ 目录、每份快照的指纹
-└── <书名>/latest.json + snapshots/<ISO>.json
+├── manifest.json                    # book name <-> directory, fingerprint of every snapshot
+└── <book name>/latest.json + snapshots/<ISO>.json
 ```
 
-这个文件夹是你自己的（移动硬盘、坚果云、NAS 都行），因此"浏览器被清了"也不等于全丢。它只写不读：删掉文件夹不会影响应用运行。
+That folder is yours (external drive, Sync service, NAS, anything), so "the browser got wiped" no longer equals "everything is gone". It is write-only: deleting the folder does not affect the app.
 
-### ⚠️ 会丢数据的情况
+### ⚠️ Situations where you can lose data
 
-- **清除浏览器数据 / 卸载浏览器** —— IndexedDB 一起没了。公网部署没有任何服务器端副本可以找回。
-- **无痕窗口** —— 窗口一关就没了；IndexedDB 完全不可用时界面会直接提示，不会假装保存成功。
-- **系统存储紧张时驱逐**（尤其 iOS Safari / 移动端）—— 应用会申请 `persisted` 存储，但决定权在浏览器。
+- **Clearing browser data / uninstalling the browser** — IndexedDB goes with it. A public deployment has no server-side copy to recover from.
+- **Private windows** — gone the moment the window closes; when IndexedDB is entirely unavailable the UI says so plainly instead of pretending the save succeeded.
+- **Eviction under storage pressure** (especially iOS Safari / mobile) — the app requests `persisted` storage, but the browser decides.
 
-所以：长期数据请至少依赖"导出文件"或"镜像备份文件夹"其中一条。
+So: for long-lived data, rely on at least one of "export files" or "the mirror backup folder".
 
 ---
 
-## 改代码前后跑这些
+## Run these before and after changing code
 
 ```bash
-npm run check    # 9 项纯函数与一致性检查（i18n / 排序 / 槽位 / 剪贴板 / 跨日拖拽 /
-                 #   周口径 / 快照策略 / EventBook store / React import）
-npm run smoke    # 无头 Chrome 端到端 15 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
-npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
+npm run check     # 9 pure-function and consistency checks (i18n / sorting / slots / clipboard /
+                  #   cross-midnight dragging / week convention / snapshot policy / EventBook store / React imports)
+npm run smoke     # headless Chrome end-to-end, 15 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
+npm run csp:check # whether the inline script hash matches public/_headers
 ```
 
-`npm run smoke` 覆盖的正是上面三条承诺：建书 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 收尾复核全程零非 GET 请求。
+`npm run smoke` covers exactly the three promises above: create a book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → a final check that the whole session made zero non-GET requests.
 
-选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=` 打已部署的站点。
-
----
-
-## 隐私边界（诚实版）
-
-- 页面不发任何第三方请求：没有统计、没有 CDN、没有外部字体/图片，全部资源同源。
-- 事件内容、EventBook 名字**从不出现在 URL 或请求体里**（冒烟测试逐条断言过）。
-- 但 CDN 边缘节点仍会记录标准访问日志（IP、User-Agent、被请求的静态路径）。"服务器不存用户数据"指的是业务数据，不等于零日志。
-- `robots.txt` 是 `Allow: /` —— 服务端本来没有任何可索引内容。
+Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=` target a deployed site, `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses).
 
 ---
 
-## 更多细节
+## Privacy boundaries (the honest version)
 
-设计意图与不变量清单见 `design.md`（改数据模型、周口径、快照策略之前请先读 §11）。
+- The page makes no third-party requests at all: no analytics, no CDN, no external fonts or images, every asset is same-origin.
+- Event content and EventBook names **never appear in a URL or a request body** (the smoke test asserts this request by request).
+- But CDN edge nodes still write standard access logs (IP, User-Agent, the static path requested). "The server stores no user data" refers to your data, not to zero logging.
+- `robots.txt` says `Allow: /`. There is simply nothing server-side worth indexing.
 
 ---
 
-## 许可证
+## More detail
 
-MIT，见 [`LICENSE`](LICENSE)。
+Design intent and the list of invariants live in `design.md` (currently Chinese only) — read §11 before touching the data model, the week convention or the snapshot policy.
+
+---
+
+## License
+
+MIT, see [`LICENSE`](LICENSE).
