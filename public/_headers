@@ -1,0 +1,29 @@
+# Cloudflare Pages 响应头（构建时原样拷进 dist/，不进任何 JS bundle）。
+# 全站零第三方脚本/字体/图片，所以 CSP 可以收到最紧：只允许同源。
+# script-src 里的 sha256 是 index.html 内联引导脚本（React 挂载前定语言，防首屏闪烁）的哈希。
+# 改那段脚本后必须跑 npm run csp:check 同步这里，否则线上内联脚本会被 CSP 直接拦掉。
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-w0gKEdhip21a3vtClMag76dqpcHXt7xV2h45snx7F5M='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-XSS-Protection: 0
+
+/index.html
+  Cache-Control: no-cache
+
+/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/workbox-*.js
+  Cache-Control: public, max-age=31536000, immutable

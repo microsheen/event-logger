@@ -1,0 +1,101 @@
+:root {
+  --color-bg: #f5f6fa;
+  --color-surface: #ffffff;
+  --color-border: #e2e5ec;
+  --color-text: #2c3e50;
+  --color-text-secondary: #7f8c9b;
+  --color-work: #4a90d9;
+  --color-work-light: #d6e8f9;
+  --color-work-hover: #3a7bc8;
+  --color-life: #27ae60;
+  --color-life-light: #d4f5e0;
+  --color-life-hover: #219a52;
+  --color-study: #f39c12;
+  --color-study-light: #fdebd3;
+  --color-study-hover: #d68910;
+  --color-accent: #6c5ce7;
+  --color-accent-light: #e8e5f9;
+  --color-danger: #e74c3c;
+  --color-danger-light: #fde8e6;
+  --sidebar-width: 390px;
+  --header-height: 56px;
+  --slot-height: 20px;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --transition: 0.2s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+
+input, select {
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+}
+
+/* 时间轴边缘缩放中：整页光标锁定，避免掠过空格或事件条时来回变化 */
+body.slot-resizing,
+body.slot-resizing * {
+  cursor: ns-resize !important;
+  user-select: none;
+}
+
+/* 跨日期拖动中：整页光标锁定为 grabbing，避免掠过别的列时空闲格光标(pointer)来回变化 */
+body.slot-moving,
+body.slot-moving * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* 日文界面使用日文字形，避免汉字落到中文字体上显示 */
+html[lang='ja'] body,
+html[lang='ja'] button,
+html[lang='ja'] input,
+html[lang='ja'] select {
+  font-family: 'Yu Gothic', 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', 'Noto Sans JP',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}

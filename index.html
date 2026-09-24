@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <title>每日事件记录器</title>
+    <script>
+      // React 挂载前先决定语言，避免首屏闪烁。
+      // 需与 src/i18n/core.js 的 STORAGE_KEY、各语言包 app.title 保持一致。
+      (function () {
+        var STORAGE_KEY = 'event-logger:lang';
+        var TITLES = { zh: '每日事件记录器', en: 'Daily Event Logger', ja: '毎日イベント記録' };
+        var HTML_LANGS = { zh: 'zh-CN', en: 'en', ja: 'ja' };
+        var lang = null;
+        try {
+          var stored = window.localStorage.getItem(STORAGE_KEY);
+          if (stored === 'zh' || stored === 'en' || stored === 'ja') lang = stored;
+        } catch (e) {
+          lang = null;
+        }
+        if (!lang) {
+          var tags = (navigator.languages || []).concat([navigator.language || '']);
+          for (var i = 0; i < tags.length; i++) {
+            var tag = String(tags[i] || '').toLowerCase();
+            if (tag.indexOf('zh') === 0) { lang = 'zh'; break; }
+            if (tag.indexOf('ja') === 0) { lang = 'ja'; break; }
+            if (tag.indexOf('en') === 0) { lang = 'en'; break; }
+          }
+        }
+        if (!lang) lang = 'en';
+        document.documentElement.lang = HTML_LANGS[lang];
+        document.title = TITLES[lang];
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

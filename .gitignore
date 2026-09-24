@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Data and logs
+data.json
+server.log
+server.err.log
+backups/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Browser automation artifacts
+.browser-docs.txt
+.browser-status.txt
+
+# Local-machine glue (public repo must not carry personal absolute paths)
+EventLogger-AutoStart.vbs
+
+# Cloudflare / wrangler local secrets and cache
+.dev.vars
+.wrangler/
+
+# Local overrides
+*.local

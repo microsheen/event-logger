@@ -1,0 +1,46 @@
+{
+  "name": "event-logger",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local-first timeline event logger — every byte of user data stays in the browser (IndexedDB); the server stores nothing.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/microsheen/event-logger.git"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "concurrently --kill-others \"node server.js\" \"vite\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "icons": "node scripts/make-icons.mjs",
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "sort:check": "node scripts/check-template-sort.mjs",
+    "slotrange:check": "node scripts/check-slot-range.mjs",
+    "clipboard:check": "node scripts/check-event-clipboard.mjs",
+    "daydrop:check": "node scripts/check-day-drop.mjs",
+    "week:check": "node scripts/check-week-start.mjs",
+    "snapshot:check": "node scripts/check-snapshot-policy.mjs",
+    "book:check": "node scripts/check-book-store.mjs",
+    "csp:check": "node scripts/check-csp-hash.mjs",
+    "imports:check": "node scripts/check-react-imports.mjs",
+    "smoke": "node scripts/e2e-smoke.mjs",
+    "check": "npm run i18n:check && npm run sort:check && npm run slotrange:check && npm run clipboard:check && npm run daydrop:check && npm run week:check && npm run snapshot:check && npm run book:check && npm run imports:check",
+    "deploy": "npm run build && npm run csp:check && wrangler pages deploy dist --project-name=event-logger"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "vite": "^6.2.0",
+    "vite-plugin-pwa": "^1.3.0",
+    "wrangler": "^4.137.0"
+  }
+}

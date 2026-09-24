@@ -1,0 +1,22 @@
+# Normalize in-repo line endings to LF; detect text by content.
+* text=auto
+
+# Windows batch/VBS glue must check out as CRLF or cmd mis-parses it.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+
+# Never diff or convert these.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+
+# Generated files: collapse diffs on GitHub.
+package-lock.json linguist-generated=true
+public/icons/*    linguist-generated=true
