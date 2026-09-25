@@ -18,54 +18,6 @@ It is now a PWA that can be published to the public internet — and **the serve
 
 ---
 
-## Publishing to the internet (Cloudflare Pages)
-
-Two routes, pick one: GitHub Actions publishes automatically on push (recommended), or you publish once manually from your own machine.
-
-### Route A: publish on push (GitHub Actions)
-
-The repo ships [`.github/workflows/ci-and-deploy.yml`](.github/workflows/ci-and-deploy.yml). Every push to `master`: run the 9 invariant checks → build → verify the CSP hash; the build output is handed to the deploy job as an artifact (**what goes live is exactly the copy that passed the checks**, not a rebuild), and `wrangler` then publishes it to Cloudflare Pages.
-
-You only have to fill in three things, across two pages:
-
-**① Create an API Token in Cloudflare** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → `Create Token`, permission **Account · Cloudflare Pages · Edit** (add **Zone · Read** if you bind a custom domain), scoped to your own account. The **Account ID** sits in the right-hand sidebar of any page in the Cloudflare console.
-
-**② Create two Repository secrets in GitHub** — [Settings → Secrets and variables → Actions](https://github.com/microsheen/event-logger/settings/secrets/actions):
-
-| Secret name | Value |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | the token from the previous step |
-| `CLOUDFLARE_ACCOUNT_ID` | your Account ID |
-
-**③ On the same page, switch to the Variables tab and add `DEPLOY_ENABLED`** — this is the master switch: **the deploy job only runs when the value is exactly the string `true`**. Unset, or set to `false`, and the workflow still checks and builds, but not one byte changes in production. So the order is: paste the secrets, then set `DEPLOY_ENABLED` to `true`, and the next push to `master` publishes.
-
-```bash
-gh variable set DEPLOY_ENABLED --body true     # start publishing (or just type it in the Variables web UI)
-gh variable set DEPLOY_ENABLED --body false    # stop publishing with one switch
-```
-
-You do not have to create the Pages project by hand: the first workflow run executes `wrangler pages project create event-logger --production-branch master` and skips it if it already exists. The published address is always <https://event-logger.pages.dev>, and each individual deployment also gets its own `https://<commit-sha>.event-logger.pages.dev`; the Pages dashboard can roll production back to any deployment in one click.
-
-There is also a `browser-smoke` job that runs the 15-step end-to-end below under headless Chrome on Linux. It currently carries `continue-on-error: true`, which means **a red run does not block the deploy** (Chrome's sandbox misbehaves occasionally inside containers). Once you are satisfied it is stable in CI, delete that line and it becomes a hard gate.
-
-### Route B: publish once from your own machine
-
-```bash
-npm install
-npx wrangler login     # authorise once in the browser; credentials stay on this machine
-npm run deploy
-```
-
-`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`. The first run asks whether to create the `event-logger` project; press Enter to confirm.
-
-### Three things to read before deploying
-
-1. **There is a sha256 in the CSP.** `script-src` in `public/_headers` whitelists the inline "set the language before React mounts" script in `index.html`. If you change that script you must run `npm run csp:check` to sync the hash, otherwise CSP blocks the inline script in production and the UI stays blank. `npm run deploy` already puts `csp:check` ahead of the deploy, so you cannot skip it.
-2. **Port 3002 is a local concern, unrelated to production.** There is no backend process in production. `server.js` and both `.bat` files read `PORT` (default 3002); only the dev proxy target in `vite.config.js` and this document still hard-code 3002 — locally, to move port, besides `set PORT=8080 && npm start` you must sync those two places.
-3. **`/api/legacy-data` on `server.js` is read-only**, used solely for "if this machine still has the old `data.json`, import it in one click from the first-run onboarding". It does not exist on the public internet, and the frontend skips the probe and hides the entry on any non-localhost hostname (see `src/utils/legacyFetch.js`).
-
----
-
 ## Local development and running
 
 ```bash

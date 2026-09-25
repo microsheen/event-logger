@@ -18,54 +18,6 @@
 
 ---
 
-## 公開ネットへリリース（Cloudflare Pages）
-
-二つの方法のうちどちらか：GitHub Actions で push 時に自動リリース（推奨）、または自分の PC で一度手動リリース。
-
-### 方法 A：push で自動リリース（GitHub Actions）
-
-リポジトリに [`.github/workflows/ci-and-deploy.yml`](.github/workflows/ci-and-deploy.yml) 同梱済み。`master` への push ごとに：9 項目の不変条件チェック → ビルド → CSP ハッシュ検証。成果物は artifact としてデプロイジョブに引き渡される（**リリースされるのはチェックを通ったあのコピーそのもの**であり、再ビルドしたものではない）、その後 `wrangler` が Cloudflare Pages へ公開する。
-
-あなたが設定するのは三つだけ、ページは二つ：
-
-**① Cloudflare で API Token を作成** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → `Create Token`、権限は **Account · Cloudflare Pages · Edit**（カスタムドメインを紐付けるなら **Zone · Read** も追加）、Account 範囲は自分のアカウントに限定。**Account ID** は Cloudflare コンソールのどのページでも右サイドバーにある。
-
-**② GitHub に Repository secrets を二つ作成** — [Settings → Secrets and variables → Actions](https://github.com/microsheen/event-logger/settings/secrets/actions)：
-
-| Secret 名 | 値 |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | 前の手順の token |
-| `CLOUDFLARE_ACCOUNT_ID` | あなたの Account ID |
-
-**③ 同じページの Variables タブに切り替えて `DEPLOY_ENABLED` を追加** — これはマスタースイッチ：**値がちょうど文字列 `true` のときだけデプロイジョブが走る**。未設定、または `false` なら、workflow はチェックとビルドをそのまま実行するが、本番には 1 バイトも変化しない。つまり順番は：secret を貼る → `DEPLOY_ENABLED` を `true` にする → 次の `master` push でリリースされる。
-
-```bash
-gh variable set DEPLOY_ENABLED --body true     # リリース開始（Web の Variables で入力してもよい）
-gh variable set DEPLOY_ENABLED --body false    # ワンクリックでリリース停止
-```
-
-Pages プロジェクトを手作業で作る必要なし：workflow の初回実行が `wrangler pages project create event-logger --production-branch master` を実行し、既にあればスキップする。公開先は常に <https://event-logger.pages.dev>、加えて各デプロイごとに `https://<commit-sha>.event-logger.pages.dev` が一つずつ付く；Pages ダッシュボードから本番を任意のデプロイへワンクリックでロールバックできる。
-
-他にも `browser-smoke` ジョブがあり、Linux の headless Chrome で下記の 15 ステップエンドツーエンドを実行する。現在は `continue-on-error: true` を付けているので、**赤になってもデプロイは止めない**（コンテナ内では Chrome のサンドボックスが時々不安定になるため）。CI で安定していると確認できたら、その行を削除すればハードゲートになる。
-
-### 方法 B：自分の PC で一度リリース
-
-```bash
-npm install
-npx wrangler login     # ブラウザで一度だけ認可；認証情報はローカルにのみ保存
-npm run deploy
-```
-
-`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`。初回は `event-logger` プロジェクトを作るか聞いてくるので、Enter で確定。
-
-### デプロイ前に読むべき三つのこと
-
-1. **CSP に sha256 が一つある。** `public/_headers` の `script-src` は、`index.html` 内の「React マウント前に言語を決める」インラインスクリプトをホワイトリストに入れている。そのスクリプトを変えたら必ず `npm run csp:check` を走らせてハッシュを同期しないと、本番でインラインスクリプトが CSP にブロックされ、画面が真っ白になる。`npm run deploy` は `csp:check` をデプロイの前に置いてあるので回避できない。
-2. **ポート 3002 はローカルの話で、本番とは無関係。** 本番にバックエンドプロセスはない。`server.js` と 2 つの `.bat` はいずれも `PORT` を読む（デフォルト 3002）；`vite.config.js` の dev proxy 先とこの文書にだけ 3002 がハードコードのままで残っている —— ローカルでポートを変えるなら `set PORT=8080 && npm start` に加え、その二箇所も同期すること。
-3. **`server.js` の `/api/legacy-data` は読み取り専用**、「この PC に古い `data.json` が残っている場合、初回起動ガイドからワンクリックで取り込む」ためだけのもの。公開ネットにこの API はなく、フロントエンドは localhost 以外のドメインではプローブをスキップし、入口自体を隠す（`src/utils/legacyFetch.js` を参照）。
-
----
-
 ## ローカル開発と実行
 
 ```bash

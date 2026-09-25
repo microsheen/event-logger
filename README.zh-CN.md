@@ -18,55 +18,6 @@
 
 ---
 
-## 发布到公网（Cloudflare Pages）
-
-两条路任选：GitHub Actions 推代码自动发布（推荐），或者在自己电脑上手动发一次。
-
-### 路 A：推代码自动发布（GitHub Actions）
-
-仓库自带 [`.github/workflows/ci-and-deploy.yml`](.github/workflows/ci-and-deploy.yml)。`master` 上每次 push：先跑 9 项不变量检查 → 构建 → CSP 哈希校验，产物以 artifact 交给部署 job（**上线的就是通过检查的那一份**，不是重新构建的），再由 `wrangler` 发到 Cloudflare Pages。
-
-你只需要填三样东西，两个页面：
-
-**① Cloudflare 建 API Token** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → `Create Token`，权限 **Account · Cloudflare Pages · Edit**（要绑自定义域名再加 **Zone · Read**），Account 范围限定成你自己的账号。**Account ID** 在 Cloudflare 控制台任意页面的右侧栏。
-
-**② GitHub 建两个 Repository secrets** — [Settings → Secrets and variables → Actions](https://github.com/microsheen/event-logger/settings/secrets/actions)：
-
-| Secret 名 | 值 |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | 上一步的 token |
-| `CLOUDFLARE_ACCOUNT_ID` | 你的 Account ID |
-
-**③ 同一个页面切到 Variables 标签，加 `DEPLOY_ENABLED`** — 这是总闸：**只有值正好是字符串 `true` 时部署 job 才跑**。没设、或设成 `false`，workflow 照样做检查和构建，但线上不会多一个字节。所以顺序是：先贴 secret，再把 `DEPLOY_ENABLED` 改成 `true`，下一次 push 到 `master` 就发布了。
-
-```bash
-gh variable set DEPLOY_ENABLED --body true     # 开始发布（也可以在网页 Variables 里填）
-gh variable set DEPLOY_ENABLED --body false    # 一键停止发布
-```
-
-Pages 项目不用你手动建：workflow 第一次跑会执行 `wrangler pages project create event-logger --production-branch master`，已存在就跳过。发布完固定是 <https://event-logger.pages.dev>，另外每一次部署各自有一个 `https://<commit-sha>.event-logger.pages.dev`；Pages 面板可以一键把生产回滚到任意一次部署。
-
-还有一个 `browser-smoke` job，用 Linux 上的 headless Chrome 跑下面那 15 步端到端。它目前带 `continue-on-error: true`，意思是**红了不拦部署**（容器里 Chrome 的沙箱偶尔抽风）。等你确认它在 CI 上稳定，删掉那一行，它就变成硬闸门。
-
-### 路 B：在自己电脑上发一次
-
-```bash
-npm install
-npx wrangler login     # 浏览器里授权一次，凭证只存在本机
-npm run deploy
-```
-
-`npm run deploy` = `npm run build` → `npm run csp:check` → `wrangler pages deploy dist --project-name=event-logger`。第一次会问要不要创建 `event-logger` 这个项目，回车确认即可。
-
-
-### 部署前必读的三件事
-
-1. **CSP 里有一个 sha256。** `public/_headers` 的 `script-src` 白名单了 `index.html` 里那段"React 挂载前定语言"的内联脚本。改了那段脚本就必须跑 `npm run csp:check` 同步哈希，否则线上内联脚本被 CSP 拦掉、界面白屏。`npm run deploy` 已经把 `csp:check` 排在部署前面，绕不过去。
-2. **端口 3002 是本地的事，和线上无关。** 线上没有后端进程。`server.js` 和两个 `.bat` 都读 `PORT`（默认 3002），只有 `vite.config.js` 的 dev proxy 目标与本文档还写死着 3002——本地要换端口，除了 `set PORT=8080 && npm start`，还得同步那两处。
-3. **`server.js` 上的 `/api/legacy-data` 是只读的**，仅用于"本机还留着旧版 `data.json` 时，首次启动引导里一键把它导进来"。公网没有这个接口，前端在非 localhost 域名下会直接跳过探测、隐藏该入口（见 `src/utils/legacyFetch.js`）。
-
----
-
 ## 本地开发与运行
 
 ```bash
