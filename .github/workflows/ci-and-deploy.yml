@@ -1,0 +1,166 @@
+# CI + publish to Cloudflare Pages.
+#
+# gates:
+#   checks        - 9 invariant checks, build, CSP hash sync. Blocking.
+#   browser-smoke - real headless Chrome end-to-end; asserts "zero non-GET requests,
+#                   zero request bodies, no user content in any URL". Blocking: deploy
+#                   needs it green, so if it goes flaky fix it instead of unblocking it.
+#   deploy        - only on push/dispatch to the production branch, and only while the
+#                   repository variable DEPLOY_ENABLED is literally "true". Ship switch.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   API token with Account > Cloudflare Pages: Edit
+#   CLOUDFLARE_ACCOUNT_ID  account id, shown in the Cloudflare dashboard sidebar
+# Required repository variable:
+#   DEPLOY_ENABLED         "false" (or absent) until you want publishing to happen
+name: ci-and-deploy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  PROJECT_NAME: event-logger
+  PRODUCTION_BRANCH: master
+
+jobs:
+  checks:
+    name: checks + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Invariant checks (i18n, sort, slot range, clipboard, day drop, week start, snapshot policy, book store, react imports)
+        run: npm run check
+
+      - name: Build static bundle (sw.js and manifest.webmanifest included)
+        run: npm run build
+
+      - name: CSP sha256 must match index.html and public/_headers
+        run: npm run csp:check
+
+      # The deploy job publishes exactly this artifact, so nothing can be built
+      # after the gates ran and still sneak into production.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+          if-no-files-found: error
+
+  browser-smoke:
+    name: e2e smoke (headless Chrome)
+    needs: checks
+    runs-on: ubuntu-latest
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Reuse the bundle that passed the gates
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Assert the bundle landed where the gates built it
+        run: |
+          test -f dist/index.html
+          test -f dist/sw.js
+          ls -la dist dist/assets
+
+      - name: 15-step end-to-end smoke against a real browser
+        run: npm run smoke -- --no-sandbox
+
+  deploy:
+    name: publish to Cloudflare Pages
+    needs: [checks, browser-smoke]
+    # NOTE: a job-level if cannot see the env context, so the branch name is
+    # repeated literally here; keep it in sync with env.PRODUCTION_BRANCH above.
+    if: ${{ github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    # Optional human approval gate: uncomment this line, then add required reviewers
+    # under Settings -> Environments -> production (GitHub creates the environment on
+    # first run). Left off because DEPLOY_ENABLED already acts as the ship switch.
+    # environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from the lockfile (wrangler comes from here)
+        run: npm ci
+
+      - name: Fetch the bundle that passed the gates
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Sanity-check the bundle before publishing
+        run: |
+          test -f dist/index.html
+          test -f dist/_headers
+          test -f dist/sw.js
+          test -f dist/manifest.webmanifest
+          ls -la dist dist/assets
+
+      - name: Create the Pages project once (harmless if it already exists)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx wrangler pages project create "$PROJECT_NAME"
+          --production-branch "$PRODUCTION_BRANCH"
+          || echo "project already exists - continuing"
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx wrangler pages deploy dist
+          --project-name "$PROJECT_NAME"
+          --branch "$PRODUCTION_BRANCH"
+          --commit-hash "$GITHUB_SHA"
+
+      - name: Where to look
+        run: |
+          {
+            echo "Production: https://$PROJECT_NAME.pages.dev"
+            echo
+            echo "This deployment: https://$GITHUB_SHA.$PROJECT_NAME.pages.dev"
+            echo
+            echo "Dashboard: https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/pages/view/$PROJECT_NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
