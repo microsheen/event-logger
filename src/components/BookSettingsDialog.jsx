@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useI18n } from '../i18n/index.jsx';
 import { LANGS } from '../i18n/core.js';
 import WeekStartPicker from './WeekStartPicker.jsx';
+import { BUILD_ID } from '../buildInfo.js';
 
 const overlayStyle = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
@@ -70,8 +71,8 @@ export default function BookSettingsDialog({ book, onClose, onSave }) {
           </select>
           <div style={hintStyle}>{tr('book.languageHint')}</div>
         </div>
-        <div style={metaStyle}>
-          {'🆔'} {book.id.slice(0, 8)} · {'🕒'} {new Date(book.createdAt).toLocaleDateString()}
+        <div style={metaStyle} data-build={BUILD_ID}>
+          {'🆔'} {book.id.slice(0, 8)} · {'🕒'} {new Date(book.createdAt).toLocaleDateString()} · {'📦'} {BUILD_ID}
         </div>
         <div style={actionRowStyle}>
           <button style={cancelBtnStyle} onClick={onClose}>{tr('common.cancel')}</button>

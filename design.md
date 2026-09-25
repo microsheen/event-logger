@@ -36,7 +36,7 @@
 | 历史版本 | 同库 `snapshots` store 的追加式快照链 | 分层淘汰 + 保护位，`src/storage/snapshots.js` |
 | 跨标签页 | `BroadcastChannel` 单写者锁 | `src/storage/bus.js` |
 | 可选镜像 | File System Access API → `EventLogger Backups/` | `src/storage/folderBackup.js`，只写不读 |
-| 离线 | `vite-plugin-pwa`（Workbox，`autoUpdate`，`injectRegister: 'script'`） | `injectRegister` 用 `inline` 会塞第二段内联脚本，CSP 不允许 |
+| 离线 | `vite-plugin-pwa`（Workbox，`autoUpdate`，`injectRegister: 'script'`） | `injectRegister` 用 `inline` 会塞第二段内联脚本，CSP 不允许；每个构建带 `BUILD_ID`（`<html data-build>` + 设置对话框页脚），用来分清「旧壳」和「新构建」 |
 | 托管 | Cloudflare Pages（纯静态 + `public/_headers` 的 CSP） | `npm run deploy` |
 | 本地 | Express 4（`server.js`，34 行） | 只发静态文件 + 只读 `GET /api/legacy-data` |
 
@@ -468,6 +468,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I25 | 改了 `index.html` 的内联引导脚本，`public/_headers` 的 sha256 必须同步 | `npm run csp:check`（已串在 `npm run deploy` 里） |
 | I26 | 用了 React 具名 API 必须显式 import（漏一个就是线上白屏级 `ReferenceError`） | `npm run imports:check` |
 | I27 | `data.json` 是只读遗留物：任何代码路径都不得再写它 | `server.js` 只剩 `readFileSync`；`smoke` 用 size+mtime 指纹断言未变 |
+| I28 | 页面必须自报构建号：`<html data-build>` 由 `main.jsx` 写入，格式固定 `(sha8|dev)-yyyymmddHHMMSS[+]`，源码只经 `src/buildInfo.js` 读取 | `smoke` 第 1 步按格式断言；设置对话框页脚 `data-build` 肉眼可查 |
 
 ---
 
@@ -481,7 +482,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `useEvents` / `useTemplates` 只在挂载时接收一次初值 | `hooks/useEvents.js:9`、`useTemplates.js:10` | 第二次换 payload 会被 `initialized` 忽略。**它依赖"换书必然重挂载"**：`Workspace key={book.id}` 与 `bookData.loading` 渲染门必须**成对存在**，拆掉任一门就会把旧书内容留在新书界面上 | I24 + smoke 第 13 步 |
 | CSP 哈希与内联脚本必须同步 | `index.html` / `public/_headers` | 忘了改 → 线上首帧白屏。本地 `npm start` 与 `vite dev` **都不发 CSP 头**，"本地能跑"不代表线上放行 | `npm run csp:check` 已串进 `npm run deploy`；I25 |
 | 安全头与托管商耦合 | `public/_headers` | Cloudflare Pages 专用格式。换 Netlify / nginx / OSS 要手动翻译等价配置 | README「部署前必读」已标注 |
-| PWA 发版有"旧壳"窗口 | `vite.config.js` | 预缓存 shell + `autoUpdate`。产物名带 hash 所以 `immutable` 长缓存安全，但更新落地要等 SW `skipWaiting` + 用户刷新 | Workbox `autoUpdate`；改完前端必须 `npm run build` 才算发布 |
+| PWA 发版有"旧壳"窗口 | `vite.config.js` | 预缓存 shell + `autoUpdate`。产物名带 hash 所以 `immutable` 长缓存安全，但 `injectRegister: 'script'` 会让 vite-plugin-pwa **不再**自动打开 `skipWaiting`/`clientsClaim`（它只在 `injectRegister` 为 `auto`/`null` 时才打开），新 SW 只能等所有标签页关完才激活 —— 于是"重新打开一次"看到的仍可能是旧构建，表现得像修复没生效。这里刻意不开 `skipWaiting`：`StatsPanel` 是懒加载分包，提前激活会触发 `cleanupOutdatedCaches` 删掉旧页面包，正在用的标签页再点统计就会 404 | 每个构建带 `BUILD_ID`（`<html data-build>`、设置对话框页脚、`smoke` 第 1 步），先确认加载到哪一版再判断修复是否生效；急时在控制台执行 `navigator.serviceWorker.getRegistration().then(r => r && r.unregister()).then(() => location.reload())`（只丢 shell 缓存，IndexedDB 数据不动）；改完前端必须 `npm run build` 才算发布 |
 | 旧 `data.json` 迁移是一次性且 localhost-only | `utils/legacyFetch.js`、`components/FirstRunGuide.jsx` | 公网部署没有这个接口（404 → 入口自动隐藏）。错过本地这条路的人只能导文件 | 引导页只在"一本 book 都没有"时出现，迁完即消失；导入永远是新增簿、不覆盖已有簿（`planImport` 防撞） |
 | 原生 `alert` / `confirm` 残留 | `EventDialog.jsx:146,147,153`、`TemplateManager.jsx:71,83,132`、`Workspace.jsx:197,234` | 与自研 `Toast` / 对话框体系脱节。**`Workspace.jsx:234` 是删除 EventBook 的确认**，语义最重，要改优先改这一处 | 已知未修 |
 | 回放是"整站只读"而非差异对比 | `Workspace.readOnly` | 看不到"这一版和当前版差在哪"，只能整站回看。做 diff 要新增一层结构，当前判定不值 | — |
@@ -523,7 +524,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `server.js` | 34 | 只发 `dist/` 静态文件 + 只读 `GET /api/legacy-data`。**没有任何写接口** |
-| `vite.config.js` | 51 | PWA（Workbox）配置、recharts 分包、dev `/api` 代理到 3002 |
+| `vite.config.js` | 77 | PWA（Workbox）配置、构建号 `BUILD_ID` 注入（`define`）、recharts 分包、dev `/api` 代理到 3002 |
 | `index.html` | 42 | 根节点 + React 挂载前的内联语言/标题脚本（哈希必须与 `_headers` 同步，§7.3） |
 | `public/_headers` | — | Cloudflare Pages 专用：CSP（含内联脚本 sha256）+ 缓存策略 + 权限策略 |
 | `public/robots.txt` | — | 禁止收录（工具站，不是内容站） |
@@ -536,7 +537,8 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `src/App.jsx` | 156 | 组装 hooks、按 `activeBook.settings.language` 套 `I18nProvider`、渲染门（不支持 / 载入中 / 首启引导 / `Workspace key=id`） |
-| `src/main.jsx` | 11 | 挂载点 |
+| `src/main.jsx` | 16 | 挂载点 + 把 `BUILD_ID` 写进 `<html data-build>` |
+| `src/buildInfo.js` | 4 | 构建号的唯一出口（`__BUILD_ID__` 由 vite `define` 替换，缺值时退成 `unknown`） |
 | `src/components/Workspace.jsx` | 387 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）+ 三个 `data-*` 测试锚点 |
 | `src/components/Header.jsx` | 165 | EventBook 切换与新建、语言、导出导入、备份文件夹、历史、设置 |
 | `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
@@ -605,7 +607,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 865 | **真浏览器 15 步**：首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移 |
+| `scripts/e2e-smoke.mjs` | 933 | **真浏览器 15 步**：启动+构建号→首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移 |
 | `scripts/check-book-store.mjs` | 199 | 设置守门、书名与文件名清洗、v1/v2 信封、导入防撞 |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |

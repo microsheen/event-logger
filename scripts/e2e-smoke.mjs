@@ -494,9 +494,9 @@ const S2 = 9;
 
 // ── 启动诊断：白屏时先告诉你为什么白屏 ──
 async function bootDiagnostics() {
-  const info = await H.expr('JSON.stringify({ title: document.title, lang: document.documentElement.lang, rootChildren: document.getElementById("root") ? document.getElementById("root").children.length : -1, nodes: document.getElementsByTagName("*").length, body: document.body.innerText.replace(/\\s+/g, " ").slice(0, 160), innerHTML: document.getElementById("root") ? document.getElementById("root").innerHTML.slice(0, 160) : "" })');
+  const info = await H.expr('JSON.stringify({ build: document.documentElement.getAttribute("data-build") || "", title: document.title, lang: document.documentElement.lang, rootChildren: document.getElementById("root") ? document.getElementById("root").children.length : -1, nodes: document.getElementsByTagName("*").length, body: document.body.innerText.replace(/\\s+/g, " ").slice(0, 160), innerHTML: document.getElementById("root") ? document.getElementById("root").innerHTML.slice(0, 160) : "" })');
   const parsed = JSON.parse(info);
-  console.log('    文档：title=' + JSON.stringify(parsed.title) + ' lang=' + parsed.lang + ' 元素数=' + parsed.nodes + ' root子节点=' + parsed.rootChildren);
+  console.log('    文档：title=' + JSON.stringify(parsed.title) + ' lang=' + parsed.lang + ' 元素数=' + parsed.nodes + ' 构建号=' + parsed.build + ' root子节点=' + parsed.rootChildren);
   console.log('    root.innerHTML: ' + JSON.stringify(parsed.innerHTML));
   console.log('    body: ' + JSON.stringify(parsed.body));
   const seen = { exceptions: bag.exceptions.slice(0, 8), csp: bag.csp.slice(0, 8), errors: bag.errors.slice(0, 8), failed: bag.failed.slice(0, 8), warnings: bag.warnings.slice(0, 5) };
@@ -515,6 +515,9 @@ await step('页面真的启动了（React 挂载成功）', async () => {
   const parsed = await bootDiagnostics();
   assert('#root 里有渲染出来的节点', parsed.rootChildren > 0, 'rootChildren=' + parsed.rootChildren);
   assert('没有致命异常/CSP 拦截', fatal().length === 0, fatal().slice(0, 5).join(' | '));
+  // 构建号是「旧壳 vs 新构建」唯一的肉眼证据：SW 预缓存 shell 时页面跑的是上一次 build 的 JS，
+  // 只看界面分不清「没修好」和「没加载到新构建」。格式定义在 vite.config.js 的 resolveBuildId。
+  assert('页面自报构建号（旧壳 / 新构建一眼可辨）', /^(?:[0-9a-f]{8}|dev)-\d{14}\+?$/i.test(parsed.build), 'data-build=' + JSON.stringify(parsed.build));
 });
 
 if (arg('boot-only')) {

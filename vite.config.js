@@ -1,8 +1,35 @@
+import { execSync } from 'node:child_process'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// 构建号：每次 build 生成「git 短 sha + 构建时刻 + 是否有未提交改动」，例 1416a951-20260925211603+。
+// 为什么必须有：shell 被 Service Worker 预缓存，重新构建后「已经打开的页面」仍在跑上一次 build 的 bundle，
+// 于是「修好了」和「没修好」在肉眼看来一模一样。页面自报构建号，一眼就能判定是哪一种。
+function gitOut(args) {
+  try {
+    return execSync('git ' + args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch (err) {
+    return ''; // 没有 git（或拿不到）时退化成纯时间戳
+  }
+}
+
+function resolveBuildId() {
+  const sha = gitOut('rev-parse --short=8 HEAD') || 'dev';
+  const dirty = gitOut('status --porcelain') ? '+' : '';
+  const p2 = (n) => (n < 10 ? '0' + n : String(n));
+  const now = new Date();
+  const stamp = String(now.getFullYear()) + p2(now.getMonth() + 1) + p2(now.getDate()) + p2(now.getHours()) + p2(now.getMinutes()) + p2(now.getSeconds());
+  return sha + '-' + stamp + dirty;
+}
+
+const buildId = resolveBuildId();
+console.log('[build] BUILD_ID = ' + buildId);
+
 export default defineConfig({
+  // define 是构建期文本替换：源码里的 __BUILD_ID__ 会变成实际字符串（唯一出口 src/buildInfo.js）。
+  // 口径固定为 (sha8|dev)-yyyymmddHHMMSS[+]，smoke 第 1 步就是按这个格式断言的。
+  define: { __BUILD_ID__: JSON.stringify(buildId) },
   plugins: [
     react(),
     VitePWA({
