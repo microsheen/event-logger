@@ -112,7 +112,9 @@ export default function Calendar({ selectedDate, onSelectDate, dateSet, weekStar
         <button style={todayBtnStyle} onClick={() => { const now = new Date(); onSelectDate(now); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); }}>{tr('calendar.today')}</button>
       </div>
       <div style={gridStyle}>
-        {weekdayLabels.map(w => (<div key={w} style={weekdayStyle}>{w}</div>))}
+        {/* data-cal-weekday / data-cal-date 是给 e2e-smoke 对齐检查用的锚点：
+            第 c 列的表头必须真是该列日期的星期（口径见 i18n/format.js 的 weekdays） */}
+        {weekdayLabels.map((w, i) => (<div key={w} data-cal-weekday={i} style={weekdayStyle}>{w}</div>))}
         {days.map((d, i) => {
           const realMonth = d.month < 0 ? 11 : d.month > 11 ? 0 : d.month;
           const realYear = d.month < 0 ? d.year : d.month > 11 ? d.year : d.year;
@@ -131,7 +133,7 @@ export default function Calendar({ selectedDate, onSelectDate, dateSet, weekStar
             position: 'relative', opacity: d.isCurrentMonth ? 1 : 0.4,
           };
           return (
-            <button key={i} style={dayBtnStyle} onClick={() => {
+            <button key={i} data-cal-date={dateStr} style={dayBtnStyle} onClick={() => {
               onSelectDate(new Date(realYear, realMonth, d.day));
               if (!d.isCurrentMonth) { setViewYear(realYear); setViewMonth(realMonth); }
             }}>

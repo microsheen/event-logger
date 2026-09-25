@@ -287,7 +287,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 ### 6.4 日历 `components/Calendar.jsx`
 
-固定 6 行 42 格（补齐上/下月）消除切月高度跳动；首列由**当前 book 的** `weekStartsOn` 决定（`leadDaysBeforeMonth(firstDay, weekStartsOn)`，§3.3），表头文字取 `weekdays(lang, weekStartsOn)`；有事件的日期在圆内加一个小圆点，圆点只依据 `dateSet`（`Workspace` 里 `useEvents.getDateSet()` 派生的 `Set<date>`；回放态下换成从 `preview.payload` 现算），不做按天聚合，成本 O(n)。
+固定 6 行 42 格（补齐上/下月）消除切月高度跳动；首列由**当前 book 的** `weekStartsOn` 决定（`leadDaysBeforeMonth(firstDay, weekStartsOn)`，§3.3），表头文字取 `weekdays(lang, weekStartsOn)`（三份字典的 `calendar.weekdays` 恒为周一开头，轮转前先把它换成 `getDay()` 口径的下标 `(weekStartsOn + 6) % 7`；少了这一步，表头会跟着格子一起错一列，每月的 1 号永远停在同一格里，改「Week starts on」看上去就毫无反应）；有事件的日期在圆内加一个小圆点，圆点只依据 `dateSet`（`Workspace` 里 `useEvents.getDateSet()` 派生的 `Set<date>`；回放态下换成从 `preview.payload` 现算），不做按天聚合，成本 O(n)。
 
 ### 6.5 EventBook 与页面壳
 
@@ -460,7 +460,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I17 | **服务器永不写用户数据**：全站只有 GET，唯一读接口是只读的 `GET /api/legacy-data`（且前端只在 localhost 探测） | 架构上没有任何写接口；`smoke` 第 7/15 步逐条断言方法、请求体、跨域、URL 内容泄露 |
 | I18 | 任何 IndexedDB 读写必须经 hooks；组件只允许 import storage 层的**纯函数与常量**。`indexedDB.open` 全站只出现在 `storage/idb.js` | §4.2 人工约束 + `grep -r "indexedDB" src`；`book:check` 只测纯逻辑即成立 |
 | I19 | LOAD 未 apply 完成前禁止落盘（挡住"挂载首帧的空写"）。`rev` 单调递增**不能**当作"写成功"的证据 | `useBookData.loadedRef`（`scheduleSave`/`flushSave` 双守）；`smoke` 第 6/10 步断言编辑真的进了 IDB |
-| I20 | `weekStartsOn` 只能来自当前 book；归一化入口只有 `normalizeWeekStart` / `normalizeSettings` | `week:check`（15372 组周窗口 + 2196 组 ISO 周号）；`smoke` 第 4/13/14 步 |
+| I20 | `weekStartsOn` 只能来自当前 book；归一化入口只有 `normalizeWeekStart` / `normalizeSettings` | `week:check`（15372 组周窗口 + 2196 组 ISO 周号 + 3 种语言 × 7 种起点的月历表头列对齐）；`smoke` 第 4/13/14 步 |
 | I21 | 淘汰快照只能经 `selectSnapshotsToDelete`；`protected` 必须与 `PROTECTED_REASONS` 严格一致，淘汰永不删受保护项 | `snapshot:check`（845 份留 500 份模拟）；`smoke` 第 9 步读真行复核 |
 | I22 | 快照链**只追加**：恢复不得删除或改写既有快照，且必须留下成对的 `pre-restore`（受保护）+ `restored-from`（可淘汰），`note` 指回被恢复的那一份 | `restoreToSnapshot` / `finishRestore` 均 `force: true`；`smoke` 第 12 步断言旧快照一份不少 |
 | I23 | 回放态（`preview`）下所有写路径必须被 `guardWrite()` 拦下，且不留任何 IDB 写入 | `Workspace.readOnly = !!preview \|\| !canWrite`；`smoke` 第 11 步（拖拽 / 编辑 / 改设置三条路 + 落盘复核） |

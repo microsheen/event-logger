@@ -1,5 +1,6 @@
 // 与语言相关的日期 / 时长格式化（基于 Intl，无新依赖）
 import { localeTag, translate } from './core.js';
+import { normalizeWeekStart } from '../utils/time.js';
 
 const formatterCache = {};
 
@@ -20,16 +21,19 @@ export function dayHeaderLabel(date, lang) {
   return weekday + ' ' + (date.getMonth() + 1) + '/' + date.getDate();
 }
 
-// 字典里的 calendar.weekdays 恒为「周一开头」；这里按 book 的周开始日轮转，
-// 避免三份字典各自维护七种起始顺序。
+// 三份字典的 calendar.weekdays 恒为「周一开头」：第 i 项代表星期 (i + 1) % 7。
+// book.settings.weekStartsOn 走的是 getDay() 口径（0=周日 … 6=周六），
+// 轮转前必须换算成字典下标 (weekStartsOn + 6) % 7。
+// 少了这一步，月历表头会比日期整体错一列，而且错位跟着设置一起平移，
+// 改「Week starts on」看上去就像毫无反应（表头与格子同时挪一格）。
 const MONDAY_FIRST = ['一', '二', '三', '四', '五', '六', '日'];
 
+// 按 book 的周开始日轮转表头，避免三份字典各自维护七种起始顺序。
 export function weekdays(lang, weekStartsOn) {
   const list = translate(lang, 'calendar.weekdays');
   const base = Array.isArray(list) && list.length === 7 ? list : MONDAY_FIRST;
-  const n = Number(weekStartsOn);
-  const start = Number.isInteger(n) && n >= 0 && n <= 6 ? n : 1;
-  return base.slice(start).concat(base.slice(0, start));
+  const offset = (normalizeWeekStart(weekStartsOn) + 6) % 7;
+  return base.slice(offset).concat(base.slice(0, offset));
 }
 
 // 统计图 Y 轴/ X 轴的月份标签：9月 / Sep / 9月

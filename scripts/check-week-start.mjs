@@ -11,6 +11,11 @@ import {
 } from '../src/utils/time.js';
 import { filterEventsByRange, calcDailyStats } from '../src/utils/stats.js';
 import { defaultWeekStartsOn } from '../src/storage/books.js';
+import { weekdays } from '../src/i18n/format.js';
+import { localeTag } from '../src/i18n/core.js';
+import zhDict from '../src/i18n/locales/zh.js';
+import enDict from '../src/i18n/locales/en.js';
+import jaDict from '../src/i18n/locales/ja.js';
 
 const problems = [];
 function check(name, condition, detail) {
@@ -140,9 +145,47 @@ const keys0 = calcDailyStats(events, d(2026, 9, 15), 'month', 'zh', 0).map((w) =
 const keys1 = calcDailyStats(events, d(2026, 9, 15), 'month', 'zh', 1).map((w) => w.key).join(',');
 check('周日/周一开头的分桶起点不同', keys0 !== keys1, keys0 + ' | ' + keys1);
 
+// —— 7. 月历表头：weekdays() 必须与 getWeekStart / leadDaysBeforeMonth 同一口径 ——
+// 字典里的 calendar.weekdays 恒为「周一开头」，weekStartsOn 却是 getDay() 口径（0=周日 … 6=周六）。
+// 差了一位就会让表头与日期整体错一列，而且错位跟着设置一起平移：
+// 用户改「Week starts on」后看到的就是「日期面板没反应」。独立真值用 Intl 的本地星期名。
+const DICTS = { zh: zhDict.calendar.weekdays, en: enDict.calendar.weekdays, ja: jaDict.calendar.weekdays };
+const REF_SUNDAY = d(2026, 9, 20); // 已知是周日：+w 天的 getDay() 恰好是 w
+const shortName = (lang, w) => new Intl.DateTimeFormat(localeTag(lang), { weekday: 'short' })
+  .format(new Date(REF_SUNDAY.getFullYear(), REF_SUNDAY.getMonth(), REF_SUNDAY.getDate() + w));
+const namesDay = (label, short) => short.indexOf(label) !== -1 || label.indexOf(short) !== -1;
+Object.keys(DICTS).forEach((lang) => {
+  const base = DICTS[lang];
+  eq(lang + ' 字典 7 项', base.length, 7);
+  // 7.1 字典自身的约定：第 i 项代表星期 (i + 1) % 7（周一开头，周日排最后）
+  base.forEach((label, i) => {
+    const short = shortName(lang, (i + 1) % 7);
+    const hits = base.filter((x) => namesDay(x, short));
+    check(lang + ' 字典第 ' + i + ' 项 = 星期 ' + ((i + 1) % 7), hits.length === 1 && hits[0] === label, label + ' / ' + short);
+  });
+  // 7.2 表头第 c 列必须是星期 (weekStartsOn + c) % 7 —— 月历格子就是按这个式子排的
+  WEEK_START_DAYS.forEach((ws) => {
+    const labels = weekdays(lang, ws);
+    eq(lang + ' ws=' + ws + ' 表头 7 项', labels.length, 7);
+    eq(lang + ' ws=' + ws + ' 表头无重复', new Set(labels).size, 7);
+    labels.forEach((label, col) => {
+      const short = shortName(lang, (ws + col) % 7);
+      const hits = base.filter((x) => namesDay(x, short));
+      check(lang + ' ws=' + ws + ' 第 ' + col + ' 列表头', hits.length === 1 && hits[0] === label,
+        '表头=' + label + ' 应为 ' + short + '（候选 ' + hits.join('|') + '）');
+    });
+  });
+  // 7.3 脏值/缺值回退周一，与 normalizeWeekStart 同口径
+  eq(lang + ' 缺值回退周一', weekdays(lang, undefined).join(''), weekdays(lang, 1).join(''));
+  eq(lang + ' 脏值回退周一', weekdays(lang, 'x').join(''), weekdays(lang, 1).join(''));
+});
+// 7.4 换周开始日必须真的改变表头（否则「改了没反应」在单测层也发现不了）
+const probeLabels = WEEK_START_DAYS.map((ws) => weekdays('zh', ws).join(''));
+eq('7 种起点的表头互不相同', new Set(probeLabels).size, 7);
+
 if (problems.length) {
   console.error('week start check FAILED (' + problems.length + ' issues):');
   [...new Set(problems)].slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('week start check OK: ' + sweep + ' 组周窗口 / ' + isoSweep + ' 组 ISO 周号 / 月历前导格 / 统计口径');
+console.log('week start check OK: ' + sweep + ' 组周窗口 / ' + isoSweep + ' 组 ISO 周号 / 月历前导格 / 月历表头 / 统计口径');

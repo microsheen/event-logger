@@ -156,6 +156,24 @@ const BOOTSTRAP = `window.__smk = (function () {
     has: function (t) { return norm(document.body.innerText).indexOf(norm(t)) >= 0; },
     count: function (sel) { return document.querySelectorAll(sel).length; },
     attrAll: function (sel, name) { return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (e) { return e.getAttribute(name); }); },
+    grid: function () {
+      var q = function (sel, attr) { return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (e) { return e.getAttribute(attr); }); };
+      return {
+        heads: q('[data-header-date]', 'data-header-date'),
+        cols: q('[data-date]', 'data-date'),
+        wds: q('[data-weekday]', 'data-weekday'),
+        events: Array.prototype.slice.call(document.querySelectorAll('[data-event-id]')).map(function (e) { return norm(e.textContent); }),
+      };
+    },
+    // 月历（页面左上的日期面板）：表头与格子必须在同一次求值里读全，
+    // 否则改设置/切书引发的重渲染会让两次读取落在不同帧上。
+    month: function () {
+      var all = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+      return {
+        heads: all('[data-cal-weekday]').map(function (e) { return norm(e.textContent); }),
+        cells: all('[data-cal-date]').map(function (e) { return e.getAttribute('data-cal-date'); }),
+      };
+    },
     texts: function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)).map(function (e) { return norm(e.textContent); }); },
     clickable: function (sel, text) {
       var el = pick(sel, text, null, true) || pick(sel, text, null, false);
@@ -450,6 +468,20 @@ await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: BOOTSTRAP });
 await cdp.send('Page.navigate', { url: targetUrl });
 await sleep(1500);
 const H = makeHelpers(cdp);
+
+// 表头 / 日列 / weekday 出自同一次渲染，必须一次求值读全，不能拆成三次 CDP 往返：
+// 建书与切书时 React 会重挂载整棵 Workspace（实测出现过 7 → 0 → 7 的帧），
+// 分开读就会拿到「表头空、日列齐」这种两帧拼出来的假数据。
+async function stableGrid(label, expectHeads, timeoutMs) {
+  return await H.until(label, async () => {
+    const g = await H.call('grid');
+    if (!g || !g.heads) return null;
+    if (g.heads.length !== 7 || g.cols.length !== 7 || g.wds.length !== 7) return null;
+    if (JSON.stringify(g.heads) !== JSON.stringify(g.cols)) return null;
+    if (expectHeads && JSON.stringify(g.heads) !== JSON.stringify(expectHeads)) return null;
+    return g;
+  }, timeoutMs || 25000);
+}
 await until(async () => await H.expr('!!window.__smk'), '页面装上定位助手', 20000);
 const fatal = () => bag.fatal();
 console.log('目标：' + targetUrl + '（同源 ' + ORIGIN + '）');
@@ -515,18 +547,49 @@ await step('需求② 建 EventBook：名字 + 周开始日 Tuesday + 语言 Eng
   assert('顶栏显示书名', await H.call('has', BOOK));
 });
 
-await step('需求② 周开始日真的作用于整站（表头 / 日列 / weekday）', async () => {
+// 月历 = 页面左上的日期面板。第 c 列的表头必须真是该列日期的星期，
+// 且格子本身要落在 (weekStartsOn + c) % 7 这一列上（与 utils/time.js 同一口径）。
+// en 界面下字典短名（Mo/Tu/…）是 en-US Intl 短名（Mon/Tue/…）的前缀，用这个做独立真值。
+async function readMonth(label) {
+  return await H.until(label, async () => {
+    const m = await H.call('month');
+    return m && m.heads.length === 7 && m.cells.length === 42 ? m : null;
+  }, 20000);
+}
+function monthGridMisalign(snapshot, weekStartsOn) {
+  const labels = snapshot.heads;
+  const cells = snapshot.cells;
+  if (labels.length !== 7) return '月历表头 ' + labels.length + ' 个（应为 7）';
+  if (cells.length !== 42) return '月历格子 ' + cells.length + ' 个（应为 42）';
+  const fmt = new Intl.DateTimeFormat('en-US', { weekday: 'short' });
+  for (let i = 0; i < cells.length; i++) {
+    const col = i % 7;
+    const want = (weekStartsOn + col) % 7;
+    const day = ymd(cells[i]);
+    if (day.getDay() !== want) return cells[i] + ' 落在第 ' + col + ' 列，但该列应为星期 ' + want;
+    const shortName = fmt.format(day);
+    if (shortName.indexOf(labels[col]) !== 0) return cells[i] + '（' + shortName + '）上方的表头是 ' + labels[col];
+  }
+  return '';
+}
+
+await step('需求② 周开始日真的作用于整站（表头 / 日列 / weekday / 月历）', async () => {
   TODAY_STR = await H.call('today');
   BASE = ymd(TODAY_STR);
-  const heads = await H.call('attrAll', '[data-header-date]', 'data-header-date');
-  const cols = await H.call('attrAll', '[data-date]', 'data-date');
-  const wds = await H.call('attrAll', '[data-weekday]', 'data-weekday');
   const exp = weekDates(2, BASE);
+  const g1 = await stableGrid('时间轴网格稳定（表头/日列/weekday 各 7 且互相对齐）', exp);
+  const heads = g1.heads;
+  const cols = g1.cols;
+  const wds = g1.wds;
   const expWd = exp.map((s) => String(ymd(s).getDay()));
   assert('第一列是 Tuesday：' + heads[0], heads[0] === exp[0] && wds[0] === '2', 'heads=' + heads.join(',') + ' wd=' + wds.join(','));
   assert('7 天连续且包含今天', JSON.stringify(heads) === JSON.stringify(exp) && heads.includes(TODAY_STR), 'exp=' + exp.join(','));
   assert('日列与表头一一对应', JSON.stringify(cols) === JSON.stringify(exp), 'cols=' + cols.join(','));
   assert('weekday 序列 = 2,3,4,5,6,0,1', JSON.stringify(wds) === JSON.stringify(expWd));
+  const cal1 = await readMonth('book1 的月历齐 7 列表头 + 42 格');
+  const calBad = monthGridMisalign(cal1, 2);
+  assert('月历每一格日期都在正确的星期列下（Tuesday 开头）', calBad === '', calBad || '42 格全对');
+  assert('月历表头首列 = Tu', cal1.heads[0] === en.calendar.weekdays[1], cal1.heads.join(' '));
 });
 
 await step('需求② 语言跟随当前 EventBook（en → zh → en）', async () => {
@@ -789,14 +852,17 @@ await step('需求② 第二本 EventBook：数据与设置各自独立', async 
     const r = rows.find((x) => x.id === b2.id);
     return r && r.settings.weekStartsOn === 1 ? r : null;
   }, 'book2 改成 Monday');
-  await sleep(700);
-  const heads2 = await H.call('attrAll', '[data-header-date]', 'data-header-date');
-  assert('book2 的周从 Monday 开始', heads2[0] === weekDates(1, BASE)[0], heads2.join(','));
+  const g2 = await stableGrid('book2 的周口径生效（表头从 Monday 开始）', weekDates(1, BASE));
+  assert('book2 的周从 Monday 开始', g2.heads[0] === weekDates(1, BASE)[0], g2.heads.join(','));
+  const cal2 = await readMonth('book2 的月历齐 7 列表头 + 42 格');
+  const calBad2 = monthGridMisalign(cal2, 1);
+  assert('book2 的月历改成 Monday 开头', calBad2 === '', calBad2 || '42 格全对');
+  assert('book2 的月历表头首列 = Mo', cal2.heads[0] === en.calendar.weekdays[0], cal2.heads.join(' '));
   await H.clickText('header span', '🗂');
   await H.clickText('div', BOOK);
-  await H.until('切回 book1', async () => JSON.stringify(await H.call('attrAll', '[data-header-date]', 'data-header-date')) === JSON.stringify(weekDates(2, BASE)), 15000);
+  const g3 = await stableGrid('切回 book1 的周口径', weekDates(2, BASE));
   ok('同一站点内两本书两套周口径', 'book2=Mon / book1=Tue');
-  assert('切回来后事件还在', (await H.call('eventBars')).length === 1);
+  assert('切回来后事件还在', g3.events.length === 1, JSON.stringify(g3.events));
   BOOK2_ID = b2.id;
 });
 await step('关掉再打开：数据仍在（IndexedDB 持久 + 可离线打开）', async () => {
@@ -805,11 +871,11 @@ await step('关掉再打开：数据仍在（IndexedDB 持久 + 可离线打开�
   cdp.on((m) => { if (m === 'Page.loadEventFired') loadedAt = Date.now(); });
   await cdp.send('Page.reload', { ignoreCache: false });
   await sleep(1200);
-  await H.until('重载后回到工作区', async () => (await H.call('clickable', 'button', en.header.history)) && (await H.call('count', '[data-header-date]', 'data-header-date')) === 7, 30000);
-  const bars = await H.call('eventBars');
+  await H.until('重载后回到工作区', () => H.call('clickable', 'button', en.header.history), 30000);
+  const gR = await stableGrid('重载后网格稳定', weekDates(2, BASE), 30000);
   assert('活动 EventBook 记忆住了', await H.call('has', BOOK));
-  assert('事件仍在', bars.length === before.length && bars[0].text.includes(EV_OLD), JSON.stringify(bars.map((b) => b.text)));
-  assert('周开始日仍是 Tuesday', (await H.call('attrAll', '[data-header-date]', 'data-header-date'))[0] === weekDates(2, BASE)[0]);
+  assert('事件仍在', gR.events.length === before.length && gR.events[0].includes(EV_OLD), JSON.stringify(gR.events));
+  assert('周开始日仍是 Tuesday', gR.heads[0] === weekDates(2, BASE)[0], gR.heads.join(','));
   assert('重载后不残留回放态', !(await H.call('has', BANNER_HEAD)));
   const regs = await H.until('Service Worker 注册', async () => {
     const n = await H.expr("(async () => { const rs = (await navigator.serviceWorker.getRegistrations()) || []; return rs.length; })()");
