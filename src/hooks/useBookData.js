@@ -21,6 +21,10 @@ export function useBookData(book, backup) {
   const bookId = book ? book.id : null;
   const [live, setLive] = useState({ events: [], templates: [], rev: 0 });
   const [loading, setLoading] = useState(true);
+  // 数据「属于哪一本书」必须能在渲染期直接判断：只看 loading 状态的话，bookId 刚变化的
+  // 那一次提交里 loading 还是上一本书留下的 false，于是 Workspace 会被挂载一次又立刻被
+  // ⏳ 卸载（整棵子树白 mount/unmount，外部还能观察到一帧空 DOM）。
+  const [loadedId, setLoadedId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [snapshots, setSnapshots] = useState([]);
   const [canWrite, setCanWrite] = useState(true);
@@ -160,6 +164,7 @@ export function useBookData(book, backup) {
       snapshotsRef.current = [];
       setLive({ events: [], templates: [], rev: 0 });
       setSnapshots([]);
+      setLoadedId(null);
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -187,6 +192,7 @@ export function useBookData(book, backup) {
         if (!cancelled) setStorageError(err && err.message ? err.message : String(err));
       } finally {
         if (!cancelled) {
+          setLoadedId(bookId);
           setLoading(false);
           requestPersistence();
           refreshQuota();
@@ -316,7 +322,8 @@ export function useBookData(book, backup) {
     events: live.events,
     templates: live.templates,
     rev: live.rev,
-    loading: loading,
+    // 就绪 = 不在载入中 且 已载入的就是当前这本（见上面 loadedId 的注释）
+    loading: loading || loadedId !== bookId,
     saving: saving,
     storageError: storageError,
     snapshots: snapshots,
