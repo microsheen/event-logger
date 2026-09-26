@@ -53,7 +53,7 @@ Eviction is tiered: keep everything within 7 days → for days 8–30 keep the e
 
 ### Optional: mirror to a local backup folder
 
-In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. That panel keeps the mirror to a single status line (which folder, when it last synced) — where the files land on disk and what each button does live in the tooltips of the title and of "🔄 Re-mirror every version", change folder, re-grant access and disconnect. When it is connected you can also choose how often the live copy is rewritten: every 1, 5, 10, 15, 30 or 60 minutes, 10 by default (a per-device setting; "💾 Save now" and "Re-mirror every version" always write immediately, and version files still land with every snapshot).
+In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. That panel keeps the mirror to a single status line (which folder, when it last synced) — where the files land on disk and what each button does live in tooltips. "🔄 Re-mirror every version" is no longer on that line: it sits at the bottom of the "📂 Open mirrored folder" panel, which lists the file names actually inside the folder (a web page cannot launch your file explorer, and names are all it reads). When it is connected you can also choose how often the live copy is rewritten: every 1, 5, 10, 15, 30 or 60 minutes, 10 by default (a per-device setting; "💾 Save now" and "Re-mirror every version" always write immediately, and version files still land with every snapshot).
 
 ```
 EventLogger Backups/
@@ -61,7 +61,7 @@ EventLogger Backups/
 └── <book name>/latest.json + snapshots/<ISO>.json
 ```
 
-That folder is yours (external drive, Sync service, NAS, anything), so "the browser got wiped" no longer equals "everything is gone". It is write-only: deleting the folder does not affect the app. "Disconnect" only stops mirroring — files already written stay exactly where they are — and switching folders re-pushes every book's whole history, so the new folder never ends up almost empty.
+That folder is yours (external drive, Sync service, NAS, anything), so "the browser got wiped" no longer equals "everything is gone". It is write-only — the folder view only lists file names, nothing is read back and the folder is never a source to restore from — so deleting it does not affect the app. "Disconnect" only stops mirroring — files already written stay exactly where they are — and switching folders re-pushes every book's whole history, so the new folder never ends up almost empty.
 
 ### ⚠️ Situations where you can lose data
 

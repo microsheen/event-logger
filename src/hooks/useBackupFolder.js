@@ -137,6 +137,8 @@ export function useBackupFolder() {
     supported,
     active,
     rootName: handle ? (handle.name || '') : '',
+    // 句柄本体：查看面板要靠它做只读列举（rootName 只是个名字，不够用）
+    rootHandle: handle,
     needsPermission,
     permission,
     lastError,

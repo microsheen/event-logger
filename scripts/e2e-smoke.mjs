@@ -132,6 +132,7 @@ async function connect(target) {
   return new Cdp(ws);
 }
 // 注入到页面里的定位助手（走 CDP 注入，不受 CSP script-src 影响）；reload 后会被重新注入。
+// metaOp 是给「已连接」那一档用的：headless 里弹不出系统目录选择框，只能把句柄位（纯数据）写进 meta 再重载。
 const BOOTSTRAP = `window.__smk = (function () {
   var alerts = [];
   window.alert = function (m) { alerts.push(String(m)); };
@@ -258,6 +259,25 @@ const BOOTSTRAP = `window.__smk = (function () {
             db.close();
             res(rows.filter(function (r) { return !bookId || r.bookId === bookId; }));
           };
+        };
+      });
+    },
+    metaOp: function (op, key, value) {
+      return new Promise(function (res, rej) {
+        var rq = indexedDB.open('event-logger', 1);
+        var out;
+        rq.onerror = function () { rej(rq.error); };
+        rq.onsuccess = function () {
+          var db = rq.result;
+          if (!db.objectStoreNames.contains('meta')) { db.close(); res(null); return; }
+          var t = db.transaction('meta', op === 'get' ? 'readonly' : 'readwrite');
+          var st = t.objectStore('meta');
+          if (op === 'get') { var g = st.get(key); g.onsuccess = function () { out = g.result; }; }
+          else if (op === 'set') { st.put({ key: key, value: value }); }
+          else { st['delete'](key); }
+          t.oncomplete = function () { db.close(); res(op === 'get' ? (out ? out.value : null) : true); };
+          t.onerror = function () { db.close(); rej(t.error || new Error('meta transaction failed')); };
+          t.onabort = function () { db.close(); rej(t.error || new Error('meta transaction aborted')); };
         };
       });
     },
@@ -925,24 +945,34 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('关菜单后 file input 仍在（否则导入点了没反应）', after.inputMounted === true);
   ok('导出/导入入口已并入 EventBook 菜单', '共 ' + m.items.length + ' 项');
 });
-await step('历史面板：镜像块正文一行 + 细节收进提示 + 工具栏「导出全部」（不碰系统弹窗、不触发下载）', async () => {
+await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查看文件夹」+ 工具栏「导出全部」（不碰系统弹窗、不触发下载）', async () => {
   const { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } = await import('../src/storage/folderBackup.js');
   await openHistory();
-  const box = await H.until('镜像块渲染', async () => (H.expr(`(() => {
+  // 镜像块探针：状态 / 动作清单 / 提示 / 正文一次求值读全（重渲染会让两次读取落在不同帧上）
+  const probe = () => H.expr(`(() => {
     const el = document.querySelector('[data-mirror-state]');
     if (!el) return null;
     const head = el.querySelector('[data-hint="path"]');
     const pick = el.querySelector('[data-action="mirror-pick"]');
+    const open = el.querySelector('[data-action="mirror-open"]');
+    const acts = Array.prototype.map.call(el.querySelectorAll('[data-action]'), (b) => b.getAttribute('data-action'));
     return {
       state: el.getAttribute('data-mirror-state'),
-      actions: Array.prototype.map.call(el.querySelectorAll('[data-action]'), (b) => b.getAttribute('data-action')).join(','),
+      actions: acts.join(','),
       pathHint: head ? head.title : null,
       pickTitle: pick ? pick.title : null,
       intervalSelect: !!el.querySelector('[data-action="mirror-interval"]'),
+      resyncInBody: acts.indexOf('mirror-resync') >= 0,
+      openBtn: !!open,
+      openTitle: open ? open.title : null,
+      openText: open ? open.textContent.trim() : null,
+      openExpanded: open ? open.getAttribute('aria-expanded') : null,
+      view: !!el.querySelector('[data-mirror-view]'),
       untitled: Array.prototype.filter.call(el.querySelectorAll('[data-action]'), (b) => !b.title || !b.title.trim()).map((b) => b.getAttribute('data-action')).join(','),
       text: el.textContent.replace(/\\s+/g, ' '),
     };
-  })()`) || null), 10000);
+  })()`);
+  const box = await H.until('镜像块渲染', async () => (await probe()) || null, 10000);
   const state = box.state;
   ok('镜像块当前状态：' + state);
   assert('状态取值在契约内', ['off', 'permission', 'on', 'unsupported'].indexOf(state) >= 0, String(state));
@@ -954,6 +984,8 @@ await step('历史面板：镜像块正文一行 + 细节收进提示 + 工具�
   assert('磁盘落点搬进标题提示（' + ROOT_DIR_NAME + ' / ' + LATEST_FILE_NAME + ' / ' + SNAPSHOT_DIR_NAME + '/）',
     !!box.pathHint && box.pathHint.indexOf(ROOT_DIR_NAME) >= 0 && box.pathHint.indexOf(LATEST_FILE_NAME) >= 0 && box.pathHint.indexOf(SNAPSHOT_DIR_NAME) >= 0, String(box.pathHint).slice(0, 180));
   assert('镜像块里每个控件都带一句话说明', box.untitled === '', box.untitled);
+  assert('「重新镜像全部版本」不在镜像块正文里（已折叠进查看面板）', box.resyncInBody === false, box.actions);
+  assert('未连接时不给「查看镜像文件夹」入口', box.openBtn === false && box.view === false, box.actions);
   assert('节奏下拉只在「已连接」时出现', box.intervalSelect === (state === 'on'), state + ' / select=' + box.intervalSelect);
   if (state === 'off') {
     assert('「数据只在本机」改放按钮提示里', !!box.pickTitle && box.pickTitle.indexOf(en.history.browserOnly) >= 0, String(box.pickTitle).slice(0, 160));
@@ -982,6 +1014,64 @@ await step('历史面板：镜像块正文一行 + 细节收进提示 + 工具�
   assert('可点且带 tooltip 说明', !!ea && ea.disabled === false && ea.hint === true, JSON.stringify(ea));
   assert('文案来自 i18n', !!ea && ea.text === en.history.exportAll, ea && ea.text);
   assert('顶栏仍是两个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 2, ea && String(ea.headerButtons));
+
+  // ── 「已连接」那一档必须真渲染一遍才验得到。headless 里弹不出系统目录选择框，所以把一个
+  //    纯数据句柄写进 meta 再重载：checkPermission 对「没有 queryPermission 的句柄」按 granted
+  //    处理（folderBackup.js 里的既有分支），状态机即进入 on。它不是真目录句柄，正好用来验
+  //    查看面板的降级路径 —— 读不到镜像目录就当「还没写过副本」显示，既不报错也绝不写盘。
+  const FAKE_ROOT_NAME = 'SMOKE MIRROR ROOT';
+  await H.call('metaOp', 'set', 'backupDirectory', { name: FAKE_ROOT_NAME });
+  await cdp.send('Page.reload', { ignoreCache: false });
+  await sleep(1200);
+  await H.until('重载后回到工作区（伪造的已连接态）', () => H.call('clickable', 'button', en.header.history), 30000);
+  await openHistory();
+  const onBox = await H.until('已连接态的镜像块', async () => { const x = await probe(); return x && x.state === 'on' ? x : null; }, 20000);
+  assert('已连接：正文里同样没有「重新镜像全部版本」', onBox.resyncInBody === false, onBox.actions);
+  assert('已连接：给出「查看镜像文件夹」按钮', onBox.openBtn === true, onBox.actions);
+  assert('已连接：查看按钮带一句话说明', !!onBox.openTitle && onBox.openTitle.length > 12, String(onBox.openTitle).slice(0, 110));
+  assert('已连接：自动镜像节奏回来了', onBox.intervalSelect === true, onBox.actions);
+  assert('已连接：那一行不会自相矛盾地写「未连接」', onBox.text.indexOf(en.folder.none) < 0, onBox.text.slice(0, 240));
+  assert('已连接：一次都还没写时明说「还没有写入过副本」', onBox.text.indexOf(en.folder.notYet) >= 0, onBox.text.slice(0, 240));
+  assert('已连接：没点开之前不铺文件列表', onBox.view === false, onBox.actions);
+  await H.click(await H.call('act', 'mirror-open'), 'mirror-open');
+  const viewBox = await H.until('查看镜像文件夹面板', async () => { const x = await probe(); return x && x.view ? x : null; }, 20000);
+  const wantActs = ['mirror-open', 'mirror-reselect', 'mirror-forget', 'mirror-view-refresh', 'mirror-view-close', 'mirror-resync'];
+  assert('面板展开：正文 + 面板的动作齐全', wantActs.every((a) => viewBox.actions.indexOf(a) >= 0), viewBox.actions);
+  assert('面板展开：「重新镜像全部版本」收在这里（折叠的逃生口）', viewBox.resyncInBody === true, viewBox.actions);
+  assert('面板展开：按钮文案切成收起', viewBox.openText === en.folder.hide, String(viewBox.openText));
+  assert('面板展开：aria-expanded 对得上', viewBox.openExpanded === 'true', String(viewBox.openExpanded));
+  assert('面板展开：每个控件也带说明', viewBox.untitled === '', viewBox.untitled);
+  const noCopyNeedle = en.folder.viewNoRoot.split('{root}')[0];
+  assert('读不到镜像目录：显示「还没写过副本」而不是报错', viewBox.text.indexOf(noCopyNeedle) >= 0, viewBox.text.slice(0, 200));
+  assert('面板标题里的根名来自句柄', viewBox.text.indexOf(FAKE_ROOT_NAME) >= 0, viewBox.text.slice(0, 200));
+  await H.click(await H.call('act', 'mirror-view-refresh'), 'mirror-view-refresh');
+  const refBox = await H.until('刷新后面板仍在', async () => { const x = await probe(); return x && x.view && x.text.indexOf(noCopyNeedle) >= 0 ? x : null; }, 20000);
+  assert('刷新不改变动作集合', refBox.actions === viewBox.actions, refBox.actions);
+  // 这里只断言「查看面板自己没有报读取失败」。整块文本里可能另外出现一行「镜像失败：…」，
+  // 那来自应用自身的去抖存档打到这个伪造句柄上（headless 造不出真的目录句柄），不是查看逻辑写的。
+  // 「查看 = 零写入 / 零读取内容」这条由 check-book-store.mjs 第 11 节用 guardDir 确定性守住：
+  // 列举前后文件树完全一致、零 create:true、零 getFileHandle。
+  const viewFailNeedle = en.folder.viewFailed.split('{')[0];
+  assert('查看面板自己没有报读取失败（它只做只读列举）', refBox.text.indexOf(viewFailNeedle) < 0, refBox.text.slice(0, 220));
+  assert('刷新后连接与面板状态没被改动', refBox.state === 'on' && refBox.view === true, refBox.state + '/' + refBox.view);
+  assert('查看镜像文件夹零 JS 异常', fatal().length === 0, fatal().join(' | '));
+  assert('查看不会把连接弄丢（meta 里还是那个句柄）', (await H.call('metaOp', 'get', 'backupDirectory')) !== null);
+  await H.click(await H.call('act', 'mirror-view-close'), 'mirror-view-close');
+  const folded = await H.until('收起查看面板', async () => { const x = await probe(); return x && !x.view ? x : null; }, 20000);
+  assert('收起：面板消失，入口还在', folded.view === false && folded.openBtn === true, folded.actions);
+  assert('收起：按钮文案切回「打开」', folded.openText === en.folder.open, String(folded.openText));
+  assert('收起：「重新镜像」跟着一起藏回去', folded.resyncInBody === false, folded.actions);
+  assert('收起：aria-expanded 回到 false', folded.openExpanded === 'false', String(folded.openExpanded));
+  // 清掉假句柄，绝不把它留给后面的步骤
+  await H.call('metaOp', 'del', 'backupDirectory');
+  await cdp.send('Page.reload', { ignoreCache: false });
+  await sleep(1200);
+  await H.until('重载后回到工作区（已清理假句柄）', () => H.call('clickable', 'button', en.header.history), 30000);
+  await openHistory();
+  const offAgain = await H.until('回到未连接', async () => { const x = await probe(); return x && x.state === 'off' ? x : null; }, 20000);
+  assert('清掉句柄后回到未连接，不再给查看入口', offAgain.openBtn === false && offAgain.view === false, offAgain.actions);
+  assert('未连接：仍然只给「选择文件夹」这一个入口', offAgain.actions === 'mirror-pick', offAgain.actions);
+  assert('伪造已连接 + 两次重载，全程零 JS 异常', fatal().length === 0, fatal().join(' | '));
   await closeHistory();
 });
 

@@ -1,4 +1,4 @@
-// EventBook 与备份检查：设置守门、名称清洗、v1/v2 信封、导入防撞、文件夹镜像与镜像节奏（纯函数层）
+// EventBook 与备份检查：设置守门、名称清洗、v1/v2 信封、导入防撞、文件夹镜像与节奏、查看文件夹的只读列举（纯函数层）
 // 用法：npm run book:check
 import {
   LANG_WEEK_START,
@@ -31,6 +31,8 @@ import {
   MIRROR_INTERVAL_OPTIONS_MIN,
   normalizeMirrorInterval,
   resetLatestStamps,
+  listMirrorTree,
+  LIST_LIMIT,
 } from '../src/storage/folderBackup.js';
 
 const problems = [];
@@ -218,6 +220,10 @@ function fakeDir(name) {
       if (!dirs.has(next)) throw new Error('NotFoundError: ' + next);
       return dirs.get(next);
     },
+    async* entries() {
+      for (const [name, text] of files) yield [name, { name, kind: 'file', _text: text }];
+      for (const [name, sub] of dirs) yield [name, sub];
+    },
     async getFileHandle(next, opts) {
       if (!(opts && opts.create) && !files.has(next)) throw new Error('NotFoundError: ' + next);
       if (!files.has(next)) files.set(next, '');
@@ -332,9 +338,90 @@ resetLatestStamps();
 eq('清窗口后立刻可写（换节奏不该再等旧窗口）', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW + TEN_MIN + 2000, throttleMs: TEN_MIN }), true);
 resetLatestStamps();
 
+
+// —— 11. 「查看镜像文件夹」：只读列举（绝不创建、绝不写、绝不打开文件内容）——
+const lTree = await listMirrorTree(mRoot);
+eq('列举成功', lTree.ok, true);
+eq('根名取自句柄', lTree.root, 'picked-by-user');
+eq('没有 missingRoot 标记', !!lTree.missingRoot, false);
+eq('列到两本簿', lTree.books.length, 2);
+eq('根目录里有 manifest.json', lTree.rootFiles.indexOf(MANIFEST_FILE_NAME) >= 0, true);
+const lA = lTree.books.find((b) => b.folder === bookSlug(mBookA));
+const lB = lTree.books.find((b) => b.folder === bookSlug(mBookB));
+eq('A 本目录里有 latest.json', lA.files.indexOf(LATEST_FILE_NAME) >= 0, true);
+eq('A 本两份历史版本', lA.snapshotTotal, 2);
+eq('历史版本倒序 = 最新在前', lA.snapshots[0], snapshotFileName(mSnapA2.iso));
+eq('最旧的一份排在最后', lA.snapshots[1], snapshotFileName(mSnapA1.iso));
+eq('B 本没有历史版本', lB.snapshotTotal, 0);
+eq('B 本照样有 latest.json', lB.files.indexOf(LATEST_FILE_NAME) >= 0, true);
+// 列举的副作用必须为零：前后文件名与内容一字不差
+const lBefore11 = treeOf(mRoot, '', new Map());
+await listMirrorTree(mRoot);
+const lAfter11 = treeOf(mRoot, '', new Map());
+eq('列举不新增也不删除文件（名字集合一致）',
+  Array.from(lAfter11.keys()).sort().join('|'), Array.from(lBefore11.keys()).sort().join('|'));
+eq('列举不改任何文件内容',
+  Array.from(lAfter11.keys()).sort().map((k) => lAfter11.get(k).length).join('|'),
+  Array.from(lBefore11.keys()).sort().map((k) => lBefore11.get(k).length).join('|'));
+// 守卫版句柄：列一遍，看它到底调没调 create / getFileHandle
+let lCreates11 = 0;
+let lOpens11 = 0;
+function guardDir(dir) {
+  return {
+    name: dir.name,
+    kind: 'directory',
+    entries: () => dir.entries(),
+    async getDirectoryHandle(next, opts) {
+      if (opts && opts.create) { lCreates11 += 1; throw new Error('create is not allowed while listing'); }
+      return guardDir(await dir.getDirectoryHandle(next, opts));
+    },
+    async getFileHandle(next, opts) {
+      lOpens11 += 1;
+      throw new Error('listing must not open file contents');
+    },
+  };
+}
+const lGuard = await listMirrorTree(guardDir(mRoot));
+eq('列举全程零创建目录', lCreates11, 0);
+eq('列举全程零打开文件（只列名字，不读内容）', lOpens11, 0);
+eq('套上守卫照样列得出两本簿', lGuard.books.length, 2);
+eq('守卫版的历史版本份数一致', lGuard.books.find((b) => b.folder === bookSlug(mBookA)).snapshotTotal, 2);
+// 上限：脏值回落默认，合法值截断但总数照报
+eq('默认上限 = ' + LIST_LIMIT, LIST_LIMIT, 300);
+const lCap1 = await listMirrorTree(mRoot, { limit: 1 });
+eq('limit 生效：只列 1 个历史版本', lCap1.books.find((b) => b.folder === bookSlug(mBookA)).snapshots.length, 1);
+eq('limit 截断后总数仍是真实份数', lCap1.books.find((b) => b.folder === bookSlug(mBookA)).snapshotTotal, 2);
+const lCapBad = await listMirrorTree(mRoot, { limit: 0 });
+eq('limit=0 回落默认而不是列空', lCapBad.books.find((b) => b.folder === bookSlug(mBookA)).snapshots.length, 2);
+const lCapNeg = await listMirrorTree(mRoot, { limit: -5 });
+eq('负 limit 回落默认', lCapNeg.books.find((b) => b.folder === bookSlug(mBookA)).snapshots.length, 2);
+const lCapText = await listMirrorTree(mRoot, { limit: 'abc' });
+eq('文本 limit 回落默认', lCapText.books.find((b) => b.folder === bookSlug(mBookA)).snapshots.length, 2);
+// 异常输入：一律「原地报错」，绝不抛出去把面板炸掉
+const lFresh = await listMirrorTree(fakeDir('picked-but-empty'));
+eq('还没写过副本：不算失败', lFresh.ok, true);
+eq('还没写过副本：missingRoot 为真', lFresh.missingRoot, true);
+eq('还没写过副本：没有簿子目录', lFresh.books.length, 0);
+eq('没句柄：不抛异常', (await listMirrorTree(null)).error, 'no-handle');
+eq('没句柄：books 为空', (await listMirrorTree(null)).books.length, 0);
+eq('不是目录句柄：当成还没写过', (await listMirrorTree({ name: 'plain-object' })).missingRoot, true);
+eq('undefined 句柄也安全', (await listMirrorTree(undefined)).error, 'no-handle');
+const lDenied = await listMirrorTree({
+  name: 'revoked',
+  async getDirectoryHandle() {
+    const err = new Error('permission revoked');
+    err.name = 'NotAllowedError';
+    throw err;
+  },
+});
+eq('权限被收回：回报失败而不是假装空的', lDenied.ok, false);
+eq('权限被收回：错误名透出来', lDenied.error, 'NotAllowedError');
+eq('权限被收回：有可读的 message', !!lDenied.message, true);
+eq('权限被收回：books 仍是空数组', lDenied.books.length, 0);
+
 if (problems.length) {
   console.error('book store check FAILED (' + problems.length + ' issues):');
   problems.slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推 / 镜像节奏与节流');
+console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推 / 镜像节奏与节流 / 查看文件夹只读列举');

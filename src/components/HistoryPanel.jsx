@@ -1,10 +1,11 @@
-import React, { Fragment, useCallback, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useState } from 'react';
 import { useI18n } from '../i18n/index.jsx';
 import { relativeTime, absoluteTimeLabel } from '../i18n/format.js';
 import { snapshotStats } from '../storage/snapshots.js';
 import { bookSlug } from '../storage/books.js';
 import { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME, MIRROR_INTERVAL_OPTIONS_MIN } from '../storage/folderBackup.js';
 import { formatBytes, formatPercent } from '../utils/size.js';
+import MirrorFolderView from './MirrorFolderView.jsx';
 
 const overlayStyle = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.28)', zIndex: 900,
@@ -78,6 +79,8 @@ export default function HistoryPanel({
   const [mirrorBusy, setMirrorBusy] = useState(false);
   const [mirrorNote, setMirrorNote] = useState(null);   // { tone: 'ok' | 'err', text }
   const [exportBusy, setExportBusy] = useState(false);
+  const [folderOpen, setFolderOpen] = useState(false);   // 「查看镜像文件夹」面板默认收起
+  const [folderScan, setFolderScan] = useState(0);      // 递增一下，展开着的清单就会重读磁盘
 
   const list = snapshots || [];
   const stats = snapshotStats(list);
@@ -86,7 +89,7 @@ export default function HistoryPanel({
   const doArchive = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    try { await onArchiveNow(); } finally { setBusy(false); }
+    try { await onArchiveNow(); setFolderScan((n) => n + 1); } finally { setBusy(false); }
   }, [busy, onArchiveNow]);
 
   const askRestore = useCallback((snapshot) => {
@@ -108,12 +111,18 @@ export default function HistoryPanel({
     try { await onExportAll(); } finally { setExportBusy(false); }
   }, [exportBusy, onExportAll]);
 
+  // 关面板 / 断开连接时把查看面板一起收起：下次进来先看正文，别铺开一堆文件名
+  useEffect(() => {
+    if (!open) setFolderOpen(false);
+  }, [open]);
+
   const mirrorState = !backup.supported ? 'unsupported' : (backup.active ? 'on' : (backup.needsPermission ? 'permission' : 'off'));
 
   const resync = useCallback(async () => {
     const result = onMirrorAll ? await onMirrorAll() : null;
     if (!result) { setMirrorNote({ tone: 'err', text: tr('folder.resyncBlocked') }); return; }
     setMirrorNote({ tone: 'ok', text: tr('folder.resyncDone', { books: result.books, snapshots: result.snapshots }) });
+    setFolderScan((n) => n + 1);        // 刚补写完整条链，展开着的清单该看到新文件
   }, [onMirrorAll, tr]);
 
   const runMirror = useCallback(async (action) => {
@@ -130,6 +139,7 @@ export default function HistoryPanel({
         if (!granted.ok) { setMirrorNote({ tone: 'err', text: tr('folder.needPermission') }); return; }
       } else if (action === 'forget') {
         await backup.forget();                              // 只断连接：磁盘上的副本一个都不动
+        setFolderOpen(false);
         return;
       }
       await resync();                                       // 选完 / 授权完立刻整链补齐，别留一个近乎空的文件夹
@@ -194,7 +204,7 @@ export default function HistoryPanel({
                   <div style={noteStyle}>
                     {tr('folder.connected', { name: backup.rootName })}
                     {' · '}
-                    {backup.lastSyncAt ? tr('folder.lastSync', { time: relativeTime(backup.lastSyncAt, lang) }) : tr('folder.none')}
+                    {backup.lastSyncAt ? tr('folder.lastSync', { time: relativeTime(backup.lastSyncAt, lang) }) : tr('folder.notYet')}
                   </div>
                 )}
                 {mirrorState === 'permission' && (
@@ -223,7 +233,7 @@ export default function HistoryPanel({
                   )}
                   {mirrorState === 'on' && (
                     <Fragment>
-                      <button style={ghostBtnStyle} data-action="mirror-resync" disabled={mirrorBusy} onClick={() => runMirror('resync')} title={tr('folder.resyncHint') + ' ' + tr('folder.chain', { count: stats.count })}>{mirrorBusy ? tr('folder.mirroring') : tr('folder.resync')}</button>
+                      <button style={ghostBtnStyle} data-action="mirror-open" disabled={mirrorBusy} aria-expanded={folderOpen} onClick={() => setFolderOpen((v) => !v)} title={tr('folder.openHint')}>{folderOpen ? tr('folder.hide') : tr('folder.open')}</button>
                       <button style={ghostBtnStyle} data-action="mirror-reselect" disabled={mirrorBusy} onClick={() => runMirror('pick')} title={tr('folder.reselectHint')}>{tr('folder.reselect')}</button>
                     </Fragment>
                   )}
@@ -231,6 +241,16 @@ export default function HistoryPanel({
                     <button style={ghostBtnStyle} data-action="mirror-forget" disabled={mirrorBusy} onClick={() => runMirror('forget')} title={tr('folder.forgetHint')}>{tr('folder.forget')}</button>
                   )}
                 </div>
+                {mirrorState === 'on' && folderOpen && (
+                  <MirrorFolderView
+                    backup={backup}
+                    versionCount={stats.count}
+                    scanKey={folderScan}
+                    busy={mirrorBusy}
+                    onResync={() => runMirror('resync')}
+                    onClose={() => setFolderOpen(false)}
+                  />
+                )}
                 {mirrorNote && (
                   <div style={mirrorNote.tone === 'ok' ? mirrorOkStyle : { ...errorStyle, marginTop: '6px' }}>{mirrorNote.text}</div>
                 )}

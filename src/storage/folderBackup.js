@@ -204,6 +204,91 @@ export async function resyncTree(handle, entries, options) {
   return { books: list.length, latest, snapshots, manifest: !!manifest };
 }
 
+// —— 只读列举：给「查看镜像文件夹」面板用 ——
+// 边界必须写死：这里只做 getDirectoryHandle({ create: false }) + entries()，
+// 既不建目录也不写文件，而且绝不打开任何文件的内容 —— 只列文件名。
+// 读到的清单仅用于展示，永不回填进应用状态：应用的数据始终只来自 IndexedDB（I30「只写不读」）。
+
+// 单层最多列这么多个文件，脏值 / 缺省一律回落到它，防止一本巨型文件夹把面板卡住
+export const LIST_LIMIT = 300;
+
+// 「不存在」和「读不了」要分开：目录缺失就当成没有这一层，权限被收回得让上层报错，别假装是空的
+function isMissingError(err) {
+  const text = String((err && err.name) || '') + ' ' + String((err && err.message) || '');
+  return text.indexOf('NotFoundError') >= 0 || text.indexOf('AbortError') >= 0;
+}
+
+async function readDir(dir, name) {
+  if (!dir || typeof dir.getDirectoryHandle !== 'function') return null;
+  let found = null;
+  try {
+    found = await dir.getDirectoryHandle(name, { create: false });
+  } catch (err) {
+    if (isMissingError(err)) return null;
+    throw err;
+  }
+  return found || null;
+}
+
+// 文件名倒序：快照文件名是 data-<ISO>.json（Windows 不许冒号，所以全换成连字符），
+// 字典序就是时间序，倒过来排即「最新的排最前」；目录名正序，稳定好读。
+async function scanDir(dir, limit) {
+  const files = [];
+  const dirs = [];
+  if (dir && typeof dir.entries === 'function') {
+    for await (const entry of dir.entries()) {
+      const name = Array.isArray(entry) ? entry[0] : '';
+      const child = Array.isArray(entry) ? entry[1] : null;
+      if (!name) continue;
+      if (child && child.kind === 'directory') dirs.push(name);
+      else files.push(name);
+    }
+  }
+  dirs.sort();
+  files.sort((a, b) => (a < b ? 1 : (a > b ? -1 : 0)));
+  const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : LIST_LIMIT;
+  return { files: files.slice(0, cap), dirs, total: files.length, truncated: files.length > cap };
+}
+
+export async function listMirrorTree(handle, options) {
+  const opts = options || {};
+  const cap = Number.isFinite(opts.limit) && opts.limit > 0 ? Math.floor(opts.limit) : LIST_LIMIT;
+  const rootName = (handle && handle.name) || '';
+  const empty = { ok: false, error: 'no-handle', root: rootName, rootFiles: [], rootTotal: 0, books: [] };
+  if (!handle) return empty;
+  try {
+    const root = await readDir(handle, ROOT_DIR_NAME);
+    // 还没有任何副本：这不是错误，界面该老实说「这个文件夹里还没有镜像目录」
+    if (!root) return { ok: true, missingRoot: true, root: rootName, rootFiles: [], rootTotal: 0, books: [] };
+    const scan = await scanDir(root, cap);
+    const books = [];
+    for (let i = 0; i < scan.dirs.length; i++) {
+      const folder = scan.dirs[i];
+      const dir = await readDir(root, folder);
+      const inner = await scanDir(dir, cap);
+      const snaps = await scanDir(await readDir(dir, SNAPSHOT_DIR_NAME), cap);
+      books.push({
+        folder,
+        files: inner.files,
+        fileTotal: inner.total,
+        snapshots: snaps.files,
+        snapshotTotal: snaps.total,
+      });
+    }
+    return {
+      ok: true,
+      missingRoot: false,
+      root: rootName,
+      rootFiles: scan.files,
+      rootTotal: scan.total,
+      books,
+    };
+  } catch (err) {
+    const message = (err && err.message) ? err.message : String(err);
+    return { ok: false, error: (err && err.name) || 'read', message, root: rootName, rootFiles: [], rootTotal: 0, books: [] };
+  }
+}
+
 // 删除 book 时清理它的整个子目录
 export async function removeBookFolder(handle, book) {
   const root = await rootDir(handle);
