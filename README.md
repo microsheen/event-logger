@@ -39,7 +39,7 @@ Browser IndexedDB, database `event-logger` (version 1), four stores:
 | `books` | `id` | each EventBook's name + settings (week start, language, timeline viewport, statistics presets) + timestamps |
 | `data` | `bookId` | this book's current `events` / `templates`, plus `rev` (+1 on every write) and `updatedAt` |
 | `snapshots` | `id` | past versions: each one carries a complete payload and can be replayed directly |
-| `meta` | `key` | the backup folder handle (`backupDirectory`) |
+| `meta` | `key` | the backup folder handle (`backupDirectory`) and the auto-mirror cadence (`mirrorIntervalMinutes`, default 10) |
 
 - The first launch runs the onboarding: create the first EventBook, or — if one exists on this machine — import the old `data.json`.
 - Export / import live in the EventBook menu at the top left (the "Data & backup" section): export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.** The history panel toolbar also carries a "⬇️ Export all" shortcut: same single implementation, works in every browser, no folder mirroring needed.
@@ -53,7 +53,7 @@ Eviction is tiered: keep everything within 7 days → for days 8–30 keep the e
 
 ### Optional: mirror to a local backup folder
 
-In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. The same panel shows and edits the mirror: which folder is connected, when it last synced, how many versions this book has, plus change folder, re-grant access, "🔄 Re-mirror every version" and disconnect.
+In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. That panel keeps the mirror to a single status line (which folder, when it last synced) — where the files land on disk and what each button does live in the tooltips of the title and of "🔄 Re-mirror every version", change folder, re-grant access and disconnect. When it is connected you can also choose how often the live copy is rewritten: every 1, 5, 10, 15, 30 or 60 minutes, 10 by default (a per-device setting; "💾 Save now" and "Re-mirror every version" always write immediately, and version files still land with every snapshot).
 
 ```
 EventLogger Backups/

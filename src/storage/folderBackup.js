@@ -12,6 +12,12 @@ export const MANIFEST_FILE_NAME = 'manifest.json';
 const META_KEY = 'backupDirectory';
 const latestStamps = {};
 
+// —— 自动镜像的节奏（设备级设置，存在 meta 里，不随 EventBook 变）——
+// 只给固定档位：任意分钟数允许写死 latest.json（0 / 负数 / 几天），脏值一律归到最近的档位。
+export const MIRROR_INTERVAL_OPTIONS_MIN = [1, 5, 10, 15, 30, 60];
+export const DEFAULT_MIRROR_INTERVAL_MIN = 10;
+const INTERVAL_META_KEY = 'mirrorIntervalMinutes';
+
 export function isFolderSupported() {
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 }
@@ -20,7 +26,7 @@ export function isFolderSupported() {
 export async function pickBackupRoot() {
   const handle = await window.showDirectoryPicker({ id: 'event-logger-backups', mode: 'readwrite' });
   await setMeta(META_KEY, handle);
-  Object.keys(latestStamps).forEach((k) => delete latestStamps[k]);
+  resetLatestStamps();
   return handle;
 }
 
@@ -30,7 +36,41 @@ export function getBackupRoot() {
 
 export async function forgetBackupRoot() {
   await removeMeta(META_KEY);
+  resetLatestStamps();
+}
+
+// 换节奏也要清窗口：不然从 60 分钟改到 1 分钟，下一次改动还得等旧窗口耗尽
+export function resetLatestStamps() {
   Object.keys(latestStamps).forEach((k) => delete latestStamps[k]);
+}
+
+// 纯函数：任何脏值（含字符串、NaN、超出范围）都归到最近的合法档位，永远不会把节流写死
+export function normalizeMirrorInterval(value) {
+  if (value === null || value === undefined || value === '') return DEFAULT_MIRROR_INTERVAL_MIN;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_MIRROR_INTERVAL_MIN;
+  let best = DEFAULT_MIRROR_INTERVAL_MIN;
+  let bestDiff = Infinity;
+  for (let i = 0; i < MIRROR_INTERVAL_OPTIONS_MIN.length; i++) {
+    const opt = MIRROR_INTERVAL_OPTIONS_MIN[i];
+    const diff = Math.abs(n - opt);
+    if (diff < bestDiff) { bestDiff = diff; best = opt; }
+  }
+  return best;
+}
+
+export async function getMirrorInterval() {
+  let stored = null;
+  try { stored = await getMeta(INTERVAL_META_KEY); } catch (err) { return DEFAULT_MIRROR_INTERVAL_MIN; }
+  return normalizeMirrorInterval(stored);
+}
+
+// 返回实际写进去的分钟数（归一化后），UI 直接用它回填下拉
+export async function setMirrorInterval(minutes) {
+  const minutes2 = normalizeMirrorInterval(minutes);
+  await setMeta(INTERVAL_META_KEY, minutes2);
+  resetLatestStamps();
+  return minutes2;
 }
 
 export async function checkPermission(handle, request) {

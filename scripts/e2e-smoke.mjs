@@ -925,15 +925,21 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('关菜单后 file input 仍在（否则导入点了没反应）', after.inputMounted === true);
   ok('导出/导入入口已并入 EventBook 菜单', '共 ' + m.items.length + ' 项');
 });
-await step('历史面板：镜像块可查看可修改 + 工具栏「导出全部」（不碰系统弹窗、不触发下载）', async () => {
+await step('历史面板：镜像块正文一行 + 细节收进提示 + 工具栏「导出全部」（不碰系统弹窗、不触发下载）', async () => {
   const { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } = await import('../src/storage/folderBackup.js');
   await openHistory();
   const box = await H.until('镜像块渲染', async () => (H.expr(`(() => {
     const el = document.querySelector('[data-mirror-state]');
     if (!el) return null;
+    const head = el.querySelector('[data-hint="path"]');
+    const pick = el.querySelector('[data-action="mirror-pick"]');
     return {
       state: el.getAttribute('data-mirror-state'),
       actions: Array.prototype.map.call(el.querySelectorAll('[data-action]'), (b) => b.getAttribute('data-action')).join(','),
+      pathHint: head ? head.title : null,
+      pickTitle: pick ? pick.title : null,
+      intervalSelect: !!el.querySelector('[data-action="mirror-interval"]'),
+      untitled: Array.prototype.filter.call(el.querySelectorAll('[data-action]'), (b) => !b.title || !b.title.trim()).map((b) => b.getAttribute('data-action')).join(','),
       text: el.textContent.replace(/\\s+/g, ' '),
     };
   })()`) || null), 10000);
@@ -942,10 +948,16 @@ await step('历史面板：镜像块可查看可修改 + 工具栏「导出全�
   assert('状态取值在契约内', ['off', 'permission', 'on', 'unsupported'].indexOf(state) >= 0, String(state));
   assert('全新 profile 里绝不假装「已连接」', state !== 'on', state);
   assert('能看到镜像块的标题', box.text.includes(en.folder.title.replace(/^[^\w]+/, '')), box.text.slice(0, 60));
-  assert('写清磁盘落点（' + ROOT_DIR_NAME + ' / ' + LATEST_FILE_NAME + ' / ' + SNAPSHOT_DIR_NAME + '/）',
-    box.text.includes(ROOT_DIR_NAME) && box.text.includes(LATEST_FILE_NAME) && box.text.includes(SNAPSHOT_DIR_NAME), box.text.slice(0, 140));
+  const chainProbe = en.folder.chain.replace('{count}', '9').slice(0, 18);
+  assert('正文瘦身：磁盘落点与版本链说明都不再占行',
+    box.text.indexOf(ROOT_DIR_NAME) < 0 && box.text.indexOf(LATEST_FILE_NAME) < 0 && box.text.indexOf(chainProbe) < 0, box.text.slice(0, 140));
+  assert('磁盘落点搬进标题提示（' + ROOT_DIR_NAME + ' / ' + LATEST_FILE_NAME + ' / ' + SNAPSHOT_DIR_NAME + '/）',
+    !!box.pathHint && box.pathHint.indexOf(ROOT_DIR_NAME) >= 0 && box.pathHint.indexOf(LATEST_FILE_NAME) >= 0 && box.pathHint.indexOf(SNAPSHOT_DIR_NAME) >= 0, String(box.pathHint).slice(0, 180));
+  assert('镜像块里每个控件都带一句话说明', box.untitled === '', box.untitled);
+  assert('节奏下拉只在「已连接」时出现', box.intervalSelect === (state === 'on'), state + ' / select=' + box.intervalSelect);
   if (state === 'off') {
-    assert('未连接的说明仍强调数据只在本机', box.text.includes(en.history.browserOnly), box.text.slice(0, 140));
+    assert('「数据只在本机」改放按钮提示里', !!box.pickTitle && box.pickTitle.indexOf(en.history.browserOnly) >= 0, String(box.pickTitle).slice(0, 160));
+    assert('未连接：正文只剩一句介绍', box.text.includes(en.folder.intro.slice(0, 24)), box.text.slice(0, 140));
     assert('未连接：只给「选择文件夹」这一个入口', box.actions === 'mirror-pick', box.actions);
   } else if (state === 'unsupported') {
     assert('不支持：一个按钮都不给，只让用导出兜底', box.actions === '', box.actions);

@@ -181,7 +181,7 @@ export default {
   },
   folder: {
     title: '📁 Mirror to a local folder',
-    intro: 'Every saved version is also written to a folder you choose. The files stay on your own computer.',
+    intro: 'Every saved version also gets a copy in a folder you choose.',
     pick: 'Choose backup folder',
     connected: 'Connected to “{name}”',
     needPermission: 'The browser needs your permission again to keep writing to this folder.',
@@ -200,6 +200,13 @@ export default {
     resyncBlocked: 'The folder is not writable — nothing was changed.',
     path: 'On disk: {root} / {book} / {latest}, versions under {snapshots}/',
     chain: 'This book has {count} versions, each one a separate JSON file.',
+    every: 'Auto-mirror',
+    minutesN: 'every {n} min',
+    everyHint: 'Changes made within this interval skip latest.json. Version files are unaffected and still land with every archive; “Archive now” and “Re-mirror every version” always write immediately. This setting applies to this device only.',
+    pickHint: 'After you choose a folder the browser asks for write access, then writes every version you already have. The copies stay on your own computer.',
+    resyncHint: 'Rewrites manifest.json, the latest copy of every book (latest.json) and all historical version files. Write-only: nothing in the folder is read back or deleted.',
+    reselectHint: 'Point at a different folder: the current copies are written there right away, files in the old folder are left alone.',
+    forgetHint: 'Only stops writing: copies in the folder are never deleted, and your versions stay in this browser on this device.',
   },
   firstRun: {
     title: 'Create your first EventBook',

@@ -1,4 +1,4 @@
-// EventBook 与备份检查：设置守门、名称清洗、v1/v2 信封、导入防撞、文件夹镜像（纯函数层）
+// EventBook 与备份检查：设置守门、名称清洗、v1/v2 信封、导入防撞、文件夹镜像与镜像节奏（纯函数层）
 // 用法：npm run book:check
 import {
   LANG_WEEK_START,
@@ -19,7 +19,19 @@ import {
   planImport,
   normalizeLivePayload,
 } from '../src/storage/legacy.js';
-import { resyncTree, snapshotFileName, ROOT_DIR_NAME, MANIFEST_FILE_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } from '../src/storage/folderBackup.js';
+import {
+  resyncTree,
+  snapshotFileName,
+  ROOT_DIR_NAME,
+  MANIFEST_FILE_NAME,
+  LATEST_FILE_NAME,
+  SNAPSHOT_DIR_NAME,
+  writeLatest,
+  DEFAULT_MIRROR_INTERVAL_MIN,
+  MIRROR_INTERVAL_OPTIONS_MIN,
+  normalizeMirrorInterval,
+  resetLatestStamps,
+} from '../src/storage/folderBackup.js';
 
 const problems = [];
 function check(name, condition, detail) {
@@ -278,9 +290,51 @@ eq('重推不改文件名集合（只覆盖内容）', Array.from(mAfter.keys())
 eq('空 entries 也只写 manifest 不炸', (await resyncTree(fakeDir('x'), [], { nowMs: NOW })).books, 0);
 eq('null entries 安全', (await resyncTree(fakeDir('y'), null, { nowMs: NOW })).manifest, true);
 
+// —— 10. 自动镜像的节奏：档位守门 + latest.json 节流 ——
+eq('默认节奏 = 10 分钟', DEFAULT_MIRROR_INTERVAL_MIN, 10);
+check('档位全是正整数且递增', MIRROR_INTERVAL_OPTIONS_MIN.every((m, i) => (
+  Number.isInteger(m) && m > 0 && (i === 0 || m > MIRROR_INTERVAL_OPTIONS_MIN[i - 1])
+)), JSON.stringify(MIRROR_INTERVAL_OPTIONS_MIN));
+check('默认值本身是个合法档位', MIRROR_INTERVAL_OPTIONS_MIN.indexOf(DEFAULT_MIRROR_INTERVAL_MIN) >= 0, String(DEFAULT_MIRROR_INTERVAL_MIN));
+// 脏值一律归到最近的档位：0 / 负数 / 空 / 文本 / 超范围都不能把节流写死
+eq('0 归到最小档', normalizeMirrorInterval(0), 1);
+eq('负数归到最小档', normalizeMirrorInterval(-5), 1);
+eq('空串回默认', normalizeMirrorInterval(''), DEFAULT_MIRROR_INTERVAL_MIN);
+eq('null 回默认', normalizeMirrorInterval(null), DEFAULT_MIRROR_INTERVAL_MIN);
+eq('undefined 回默认', normalizeMirrorInterval(undefined), DEFAULT_MIRROR_INTERVAL_MIN);
+eq('文本回默认', normalizeMirrorInterval('abc'), DEFAULT_MIRROR_INTERVAL_MIN);
+eq('字符串数字可用', normalizeMirrorInterval('5'), 5);
+eq('7 就近取 5', normalizeMirrorInterval(7), 5);
+eq('8 就近取 10', normalizeMirrorInterval(8), 10);
+eq('61 截到最大档', normalizeMirrorInterval(61), 60);
+eq('9999 截到最大档', normalizeMirrorInterval(9999), 60);
+eq('恰好是档位时原样保留', normalizeMirrorInterval(15), 15);
+eq('归一化幂等', normalizeMirrorInterval(normalizeMirrorInterval(61)), 60);
+// 节流本身：窗口内跳过、窗口外重写、force 立刻穿透、换节奏清窗口
+const tBook = mirrorBook('book-c', 'Gamma');
+const tDir = fakeDir('throttle-root');
+const tKey = '/' + [ROOT_DIR_NAME, bookSlug(tBook), LATEST_FILE_NAME].join('/');
+const tPayload = { events: [1], templates: [] };
+const TEN_MIN = DEFAULT_MIRROR_INTERVAL_MIN * 60 * 1000;
+function latestTree() { return treeOf(tDir, '', new Map()); }
+resetLatestStamps();
+eq('首次镜像一定写盘', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW, throttleMs: TEN_MIN }), true);
+eq('latest.json 落在预期路径', latestTree().has(tKey), true);
+const tSaved1 = JSON.parse(latestTree().get(tKey)).savedAt;
+eq('默认节奏的窗口内跳过', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW + 60000, throttleMs: TEN_MIN }), false);
+eq('跳过时磁盘文件没被改', JSON.parse(latestTree().get(tKey)).savedAt, tSaved1);
+eq('窗口边界外重写', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW + TEN_MIN, throttleMs: TEN_MIN }), true);
+const tSaved2 = JSON.parse(latestTree().get(tKey)).savedAt;
+check('重写确实换了时间戳', tSaved2 !== tSaved1, tSaved1 + ' / ' + tSaved2);
+eq('「立即存档 / 重新镜像」用 force 穿透节流', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW + TEN_MIN + 1000, force: true, throttleMs: TEN_MIN }), true);
+eq('force 之后文件已更新', JSON.parse(latestTree().get(tKey)).savedAt !== tSaved2, true);
+resetLatestStamps();
+eq('清窗口后立刻可写（换节奏不该再等旧窗口）', await writeLatest(tDir, tBook, tPayload, { nowMs: NOW + TEN_MIN + 2000, throttleMs: TEN_MIN }), true);
+resetLatestStamps();
+
 if (problems.length) {
   console.error('book store check FAILED (' + problems.length + ' issues):');
   problems.slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推');
+console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推 / 镜像节奏与节流');

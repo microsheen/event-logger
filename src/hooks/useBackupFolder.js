@@ -11,6 +11,9 @@ import {
   unmirrorSnapshot,
   removeBookFolder,
   resyncTree,
+  getMirrorInterval,
+  setMirrorInterval,
+  DEFAULT_MIRROR_INTERVAL_MIN,
 } from '../storage/folderBackup.js';
 
 // 「备份到本地文件夹」的开关与守护：未选择文件夹或权限被收回时，所有写盘动作安静地跳过。
@@ -20,6 +23,10 @@ export function useBackupFolder() {
   const [permission, setPermission] = useState('none');
   const [lastError, setLastError] = useState(null);
   const [lastSyncAt, setLastSyncAt] = useState(null);
+  // 自动镜像写 latest.json 的节奏（分钟）。写路径一律读 intervalRef，不读闭包里的 state，
+  // 理由和 handle/permission 一样：改完立刻存档时 setState 还没生效。
+  const [intervalMin, setIntervalMinState] = useState(DEFAULT_MIRROR_INTERVAL_MIN);
+  const intervalRef = useRef(DEFAULT_MIRROR_INTERVAL_MIN);
   // 句柄与权限的「当前值」镜像。写路径一律读它，不读闭包里的 state：
   // 「选完新文件夹 → 立刻整链重推」发生在同一次事件里，那时 setState 还没生效，
   // 闭包里的 handle 仍是旧的（或 null），重推就会写进老地方、或者干脆安静跳过。
@@ -35,6 +42,11 @@ export function useBackupFolder() {
     let cancelled = false;
     (async () => {
       if (!supported) return;
+      let minutes = DEFAULT_MIRROR_INTERVAL_MIN;
+      try { minutes = await getMirrorInterval(); } catch (err) { minutes = DEFAULT_MIRROR_INTERVAL_MIN; }
+      if (cancelled) return;
+      intervalRef.current = minutes;
+      setIntervalMinState(minutes);
       let stored = null;
       try { stored = await getBackupRoot(); } catch (err) { return; }
       if (!stored || cancelled) return;
@@ -82,6 +94,14 @@ export function useBackupFolder() {
     setLastError(null);
   }, [applyState]);
 
+  // 改节奏：归一化后落盘，并清掉节流窗口（否则 60 分钟改 1 分钟还要等旧窗口耗尽）
+  const setIntervalMin = useCallback(async (minutes) => {
+    const saved = await setMirrorInterval(minutes);
+    intervalRef.current = saved;
+    setIntervalMinState(saved);
+    return saved;
+  }, []);
+
   // 统一包装：失败只记录，绝不打断编辑
   const guard = useCallback(async (label, fn) => {
     const cur = stateRef.current;
@@ -104,7 +124,10 @@ export function useBackupFolder() {
   }, []);
 
   const syncManifest = useCallback((entries) => guard('manifest', (h) => writeManifest(h, entries)), [guard]);
-  const syncLatest = useCallback((book, payload, options) => guard('latest', (h) => writeLatest(h, book, payload, options)), [guard]);
+  // 不带 options 的自动镜像按面板里设的节奏节流；显式传 force / throttleMs 仍然优先。
+  const syncLatest = useCallback((book, payload, options) => guard('latest', (h) => (
+    writeLatest(h, book, payload, Object.assign({ throttleMs: intervalRef.current * 60000 }, options))
+  )), [guard]);
   const syncSnapshot = useCallback((book, snapshot) => guard('snapshot', (h) => mirrorSnapshot(h, book, snapshot)), [guard]);
   const dropSnapshot = useCallback((book, snapshot) => guard('prune', (h) => unmirrorSnapshot(h, book, snapshot)), [guard]);
   const dropBook = useCallback((book) => guard('remove-book', (h) => removeBookFolder(h, book)), [guard]);
@@ -118,6 +141,8 @@ export function useBackupFolder() {
     permission,
     lastError,
     lastSyncAt,
+    intervalMin,
+    setIntervalMin,
     select,
     grant,
     forget,

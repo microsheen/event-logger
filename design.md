@@ -176,14 +176,14 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
          → useEvents / useTemplates 通过回调上报
          → useBookData 写进 eventsRef / templatesRef
          → 500ms 防抖 → writeLiveData(bookId) → rev+1 → BroadcastChannel 通知
-         → 同时：够条件才 maybeSnapshot（≥15min）/ 镜像文件夹 latest.json（≥60s）
+         → 同时：够条件才 maybeSnapshot（≥15min）/ 镜像文件夹 latest.json（默认 ≥10min，可设）
 ```
 
 | Hook | 独占的东西 | 写入节流 |
 |---|---|---|
 | `useBooks` | 书列表、`activeBookId`、派生 `activeBook`、`settingsOpenFor`（该给哪本书开设置弹窗） | 设置 400ms 合并写 |
 | `useBookData` | 当前书的 live 数据、快照链、单写者锁、预览(回放)态、配额、`loadedRef` 守门 | 数据 500ms |
-| `useBackupFolder` | File System Access 句柄与权限状态 | 镜像 latest 60s 节流 |
+| `useBackupFolder` | File System Access 句柄与权限状态、自动镜像节奏 | 镜像 latest 默认 10 分钟节流（档位 1/5/10/15/30/60） |
 | `useBookTransfer` | 导出/导入编排（v2 信封、防撞名） | 导出前强制 flush |
 | `useEvents` / `useTemplates` | 各自一块数组 + CRUD | 变更即上报 |
 | `Workspace` | 跨组件共享的 UI 状态：选中日期、弹窗开关、剪贴板、统计档位 | 不落盘 |
@@ -201,7 +201,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 |---|---|---|
 | IndexedDB `books` | 书名、每本书的周开始日/语言/视口/统计档位 | 属于"这本书"，导出即带走 |
 | IndexedDB `data` / `snapshots` | 事件、模板、历史版本 | 用户数据本体 |
-| IndexedDB `meta` | 只有备份文件夹句柄（`backupDirectory`） | 本机但要跨会话；不是用户内容 |
+| IndexedDB `meta` | 备份文件夹句柄（`backupDirectory`）与自动镜像节奏（`mirrorIntervalMinutes`） | 本机但要跨会话；不是用户内容，也不随导出文件走 |
 | `localStorage` | 模板排序偏好 `event-logger:template-sort`、上次看的书 `event-logger:active-book`、语言缓存 `event-logger:lang` | 纯本机 UI。丢了不伤数据：换浏览器最多"回到第一本书、用浏览器语言" |
 
 排序 store 的实现方式值得注意：模块级 `state` + `listeners` Set + `useSyncExternalStore`，于是两个弹窗天然共享同一份偏好，**不需要把 props 从 `App` 一路穿下去**；同时监听 `storage` 事件，其它标签页改动时丢弃缓存重读。`localStorage` 读写全部 try/catch，隐私模式下退化为"仅内存生效"。
@@ -212,7 +212,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 ```
 编辑 ─500ms─► writeLiveData(bookId) ─► rev+1 ─► BroadcastChannel(MSG.data)
-                                          ├─► 镜像文件夹 latest.json（60s 节流）
+                                          ├─► 镜像文件夹 latest.json（默认 10 分钟节流）
                                           └─► maybeSnapshot ─► createSnapshot(hash 去重)
                                                                   └─► pruneSnapshots ─► 镜像删同名文件
 ```
@@ -244,9 +244,10 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 **可选的文件夹镜像**（`folderBackup.js` + `useBackupFolder` + 历史面板里的镜像块）：`EventLogger Backups/manifest.json` 记书名↔目录与每份快照指纹，`<书名>/latest.json` 与 `<书名>/snapshots/<ISO>.json` 是可直接阅读的副本。刻意**只写不读**——它不参与应用状态，删了不影响运行，但足以在"浏览器被清"之后手动搬回来。
 
-- **查看与修改都在历史面板里**（§6.6）：状态 pill（已镜像 / 需要授权 / 未连接 / 不支持）、连到哪个文件夹、上次镜像时间、磁盘落点、这本书有多少个版本，外加"选择 / 更换 / 重新授权 / 整链补齐 / 断开"。句柄仍然只存在 IndexedDB `meta.backupDirectory` 里，面板只是它的一张脸。
+- **查看与修改都在历史面板里**（§6.6）：标题行一个状态 pill（已镜像 / 需要授权 / 未连接 / 不支持）+ **一行正文**（连到哪个文件夹 · 上次镜像时间），下面只有该状态真正需要的那几个按钮（选择 / 更换 / 重新授权 / 整链补齐 / 断开）。**落盘路径、版本链、每个按钮到底做了什么，一律收在 tooltip 里**——这一栏是状态灯，不是说明书。已连接时多一行「自动镜像 · 每 N 分钟」下拉（默认 10 分钟，档位 1/5/10/15/30/60，存 `meta.mirrorIntervalMinutes`，只对当前设备有效）。句柄仍然只存在 IndexedDB `meta.backupDirectory` 里，面板只是它的一张脸。
 - **换目录必须整链回补**（`resyncTree`）：镜像平时只在"新快照产生时"写盘，所以刚连上新文件夹时那里几乎是空的——看着像备份成功，实际只含有此后新增的那几份。"选完 / 授权完 / 手动补齐"三条路径收尾统一走一次 `resyncTree`：manifest + 每本 `latest.json` + 全部历史快照重推一遍。
 - **断开 ≠ 删除**：「断开」只清本地句柄与内存 state，目标文件夹里已写出的副本一个都不动；镜像路径上也从不删除目标里的任何既有文件。
+- **节流只管 `latest.json`**：节奏调成 60 分钟也不会丢数据——IndexedDB 里的历史版本照旧每 15 分钟一份，`snapshots/*.json` 镜像文件照旧随每次存档落盘，「立即存档」和「重新镜像全部版本」走 `{ force: true }` 永远立刻写。改节奏时清空节流窗口（`resetLatestStamps()`），否则 60 分钟调成 1 分钟还得干等旧窗口耗尽。
 - `guard()` 一律读 `stateRef` 而不是闭包里的 state：否则"选完新文件夹立刻重推"会拿旧句柄写入，或者干脆安静跳过——这正是本模块唯一的静默失败来源。
 
 **恢复入口一共三条**：① 历史面板选版本恢复；② EventBook 菜单「数据与备份」段的导出 / 导入文件；③ 镜像文件夹里的 JSON 再导进来。
@@ -305,7 +306,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 - `BookSettingsDialog.jsx` 编辑当前这本书的书名 / 周开始日 / 语言 / 时间轴视口 / 统计档位。删除入口不在这个弹窗里，而在顶栏书籍菜单（§12 倒数第 5 行是它）。**开场时机由 `books.settingsOpenFor` 派生**（见 §4.3），弹窗本身不知道自己是"新建后自动弹"还是"用户点的"。
 - `WeekStartPicker.jsx` 把抽象的 `weekStartsOn` 变成**预览**：选中任一日起点，立刻显示这本书的周范围与周号（`getWeekRange` / `weekNumber`），让 §3.3 的口径在改之前就被看见。
-- `HistoryPanel.jsx` 是需求 ③ 的界面：一行一个历史版本（时间取 `snapshots` 索引，不含 payload），带 reason 中文标签、体积合计（`snapshotStats`）、配额占比（`estimateUsage`）、「立即存档」，以及"查看此版本 / 恢复到此版本"。点击某行 = 进出回放；恢复是**行内两段式确认**（`restoreId` 命中才出现"确认恢复"），避免整页 `confirm` 打断。工具栏里的**镜像块**（容器 `data-mirror-state` = `on` / `permission` / `off` / `unsupported`，按钮 `data-action="mirror-pick|mirror-grant|mirror-resync|mirror-reselect|mirror-forget"`）是 §5 那条镜像链的唯一入口：状态、连接目标、落盘路径、版本数都摊开写清楚，动手之后立刻 `onMirrorAll()` 补齐整条链；`unsupported` 时一个按钮都不给，只让用户走导出。工具栏第一行是「💾 立即存档」+「⬇️ 导出全部」（`data-action="export-all"`）：后者**与镜像能力无关**，是不支持 File System Access 的浏览器（Firefox / Safari）的兜底通路，放在镜像块容器之外，与菜单里的「导出全部簿」共用同一个 `handleExportAll`。
+- `HistoryPanel.jsx` 是需求 ③ 的界面：一行一个历史版本（时间取 `snapshots` 索引，不含 payload），带 reason 中文标签、体积合计（`snapshotStats`）、配额占比（`estimateUsage`）、「立即存档」，以及"查看此版本 / 恢复到此版本"。点击某行 = 进出回放；恢复是**行内两段式确认**（`restoreId` 命中才出现"确认恢复"），避免整页 `confirm` 打断。工具栏里的**镜像块**（容器 `data-mirror-state` = `on` / `permission` / `off` / `unsupported`，控件 `data-action="mirror-pick|mirror-grant|mirror-resync|mirror-reselect|mirror-forget|mirror-interval"`）是 §5 那条镜像链的唯一入口，但**正文只有一行状态**：落盘路径挂在标题的 `title`（`data-hint="path"`）上，每个按钮到底做了什么写在各自的 `title` 里，`on` 态额外给一行「自动镜像」节奏下拉（`meta.mirrorIntervalMinutes`，默认 10 分钟）。选择 / 授权之后立刻 `onMirrorAll()` 补齐整条链；`unsupported` 时一个按钮都不给，只让用户走导出。工具栏第一行是「💾 立即存档」+「⬇️ 导出全部」（`data-action="export-all"`）：后者**与镜像能力无关**，是不支持 File System Access 的浏览器（Firefox / Safari）的兜底通路，放在镜像块容器之外，与菜单里的「导出全部簿」共用同一个 `handleExportAll`。
 - `FirstRunGuide.jsx` 只在"一本 book 都没有"时出现：起个书名 / 挑周开始日与语言 / 迁移本机旧 `data.json`（仅 localhost 探测到才显示）/ 从备份文件恢复。做完即 `createBook`，此后它不再出现。
 - 三个组件上的 `data-*`（`data-action` / `data-snap`）是 `npm run smoke` 的定位锚点，**改 UI 时不要顺手删**。
 
@@ -478,6 +479,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I29 | 导出 / 导入的**入口**在 EventBook 菜单里，但承载文件的 `<input type="file">` **必须常驻 header 根节点**（下拉一关就卸载 children，跟着卸载的 input 会让"导入"点了没反应）；同一只下拉必须整体键盘可达：触发器 `role=button` + `tabIndex=0` + `aria-expanded`，面板 `role=menu`，项 `role=menuitem` 且可聚焦 | `Header.jsx` 的 `pickImportFile()` 与根节点 input；`smoke` 第 15 步断言 `inputMounted`、`inputInsideMenu === false`、`tabbable === items.length`、`triggers >= 1` |
 | I30 | 文件夹镜像严格**单向**：只写不读，断开不删磁盘副本；换文件夹 / 重新授权之后必须把**整条链**回补一遍（`resyncTree`），否则新目录里只有此后新增的几份；`useBackupFolder` 的写路径一律读 `stateRef`，UI 判断"能不能镜像"用 `canMirror()` 而不是 `backup.active` | `folderBackup.resyncTree` + `useBackupFolder.guard/canMirror`；`book:check` §9（假句柄跑通 manifest / latest / 快照 / 幂等 / 空输入）；`smoke` 第 16 步断言 `data-mirror-state` 契约与按钮可见性 |
 | I31 | 「导出全部」有**两个入口**（EventBook 菜单 + 历史面板工具栏），但只有**一条实现**：都走 `Workspace.handleExportAll` → `transfer.exportAll()`，不复制第二份导出逻辑；历史面板那个按钮（`data-action="export-all"`）必须待在 `data-mirror-state` 容器**之外**——它不依赖 File System Access，在不支持镜像的浏览器里是唯一兜底 | `HistoryPanel.jsx` 的 `toolRowStyle` 行；`smoke` 第 16 步断言 `outside === true`、`disabled === false`、`title` 非空、文案等于 `en.history.exportAll`、顶栏按钮数仍为 2 |
+| I32 | 自动镜像节奏是**设备级设置**（`meta.mirrorIntervalMinutes`），只影响 `latest.json` 的写频，**绝不**改变 §5 那条 15 分钟快照节奏，也不影响 `snapshots/*.json` 随每次存档落盘；档位表固定 1/5/10/15/30/60、默认 10，脏值（0 / 负数 / 空 / 文本 / 超范围）一律归到最近档位；`syncLatest` 读 `intervalRef` 而不是闭包 state，改节奏必须 `resetLatestStamps()` 清窗口，「立即存档」与「重新镜像全部版本」走 `{ force: true }` 不受节流限制。镜像块的详细说明一律待在 tooltip 里，正文只留一行状态 | `folderBackup.normalizeMirrorInterval` / `getMirrorInterval` / `setMirrorInterval` + `useBackupFolder.setIntervalMin`；`book:check` §10（默认 10、脏值归档、窗口内跳过且磁盘文件没变、窗口外重写、force 穿透、清窗口后立刻可写）；`smoke` 第 16 步断言正文不含 `ROOT_DIR_NAME` 与版本链说明、标题 `title` 含三个路径常量、每个 `[data-action]` 都带 `title`、节奏下拉只在 `on` 态出现 |
 
 ---
 
@@ -553,7 +555,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
 | `src/components/EventDialog.jsx` | 271 | 事件新建/编辑、冲突提示、模板选择与热度、存为模板 |
 | `src/components/StatsPanel.jsx` | 230 | 类别饼图、堆叠柱、排行榜（recharts，懒加载分包） |
-| `src/components/HistoryPanel.jsx` | 271 | 历史版本列表：reason 中文标签、预览、恢复（不可逆提示）、手删；工具栏＝立即存档 + 导出全部，外加镜像文件夹的"查看 + 修改"块（`data-mirror-state`） |
+| `src/components/HistoryPanel.jsx` | 296 | 历史版本列表：reason 中文标签、预览、恢复（不可逆提示）、手删；工具栏＝立即存档 + 导出全部，外加镜像文件夹的"查看 + 修改"块（`data-mirror-state`）——正文只一行，细节全在按钮 `title` 里，已连接时给一行自动镜像节奏下拉 |
 | `src/components/Calendar.jsx` | 146 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
 | `src/components/TemplateManager.jsx` | 144 | 模板增删改 + 排序 |
 | `src/components/FirstRunGuide.jsx` | 144 | 零本书时的引导：新建 / 迁移本机 `data.json` / 从备份文件恢复 |
@@ -570,7 +572,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/hooks/useBookData.js` | 338 | 一本书的载入 / 防抖写盘 / 快照链 / 回放与恢复 / 单写者 / 配额提示。`loadedRef` 门见 §5 |
 | `src/hooks/useBooks.js` | 157 | EventBook 集合：新建/删除/切换/合并写设置 + `settingsOpenFor` 弹窗意图（App 层持有，见 §4.3） |
 | `src/hooks/useBookTransfer.js` | 118 | 导出 v2 信封（含所有书）、导入（永远是新增簿，按书名+事件指纹防撞）；`mirrorAll()` 把当前所有簿与全部快照交给 `resyncTree` 整链重推 |
-| `src/hooks/useBackupFolder.js` | 132 | 镜像文件夹的授权/重连（句柄存 `meta`），把 `folderBackup` 变成"能连就同步、连不上就静默"；state 一律经 `stateRef` 读，另暴露 `canMirror()` / `resyncAll()` |
+| `src/hooks/useBackupFolder.js` | 157 | 镜像文件夹的授权/重连（句柄存 `meta`），把 `folderBackup` 变成"能连就同步、连不上就静默"；state 一律经 `stateRef` 读，节奏一律经 `intervalRef` 读，另暴露 `canMirror()` / `resyncAll()` / `setIntervalMin()` |
 | `src/hooks/useTemplateSort.js` | 111 | 排序偏好 store（模块级 state + `useSyncExternalStore` + `storage` 事件） |
 | `src/hooks/useEvents.js` | 52 | 事件 CRUD + 变更上报（初值只在挂载时接收一次） |
 | `src/hooks/useTemplates.js` | 45 | 模板 CRUD + 变更上报（同上） |
@@ -584,7 +586,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/storage/books.js` | 133 | book 的归一化/新建/改名清洗 + 列表与 CRUD + `readLiveData` / `writeLiveData` |
 | `src/storage/snapshots.js` | 223 | 快照链：写前钩子与节奏、指纹去重、分层淘汰、列表（不含 payload）、按 id 取 payload、删除 |
 | `src/storage/bus.js` | 148 | `BroadcastChannel('event-logger:bus')`：数据/快照/书目失效通知 + 单写者锁（心跳 2s，接管即赢） |
-| `src/storage/folderBackup.js` | 176 | File System Access 镜像：`EventLogger Backups/<书名>/latest.json` 与 `snapshots/*.json` + manifest；**只写不读**；`resyncTree()` 负责整链回补 |
+| `src/storage/folderBackup.js` | 216 | File System Access 镜像：`EventLogger Backups/<书名>/latest.json` 与 `snapshots/*.json` + manifest；**只写不读**；`resyncTree()` 负责整链回补；`normalizeMirrorInterval()` 把节奏脏值归到档位、`resetLatestStamps()` 换节奏清窗口 |
 | `src/storage/legacy.js` | 110 | 备份信封 v1/v2 识别与生成、`planImport` 防撞、旧 `data.json` → 新书的映射（纯函数，可 Node 断言） |
 
 ### `src/utils/`（纯函数）
@@ -609,15 +611,15 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
 | `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
 | `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
-| `src/i18n/locales/{zh,en,ja}.js` | 218 × 3 | 三语文案，`zh` 为源语言 |
+| `src/i18n/locales/{zh,en,ja}.js` | 225 × 3 | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
 ### `scripts/`（lint 级 CI）
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 1015 | **真浏览器 17 步**：启动+构建号→首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 按钮可见性，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）→收尾零存储复核 |
-| `scripts/check-book-store.mjs` | 286 | 设置守门、书名与文件名清洗、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等） |
+| `scripts/e2e-smoke.mjs` | 1027 | **真浏览器 17 步**：启动+构建号→首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）→收尾零存储复核 |
+| `scripts/check-book-store.mjs` | 340 | 设置守门、书名与文件名清洗、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流 |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |
 | `scripts/check-react-imports.mjs` | 79 | React 具名 API 是否都显式 import（I26） |

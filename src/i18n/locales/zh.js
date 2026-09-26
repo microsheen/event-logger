@@ -181,7 +181,7 @@ export default {
   },
   folder: {
     title: '📁 镜像到本地文件夹',
-    intro: '每存一个历史版本，就往你选的文件夹里同步写一份。文件始终留在你自己的电脑上。',
+    intro: '每存一个历史版本，就往你选的文件夹里写一份副本。',
     pick: '选择备份文件夹',
     connected: '已连接到「{name}」',
     needPermission: '浏览器需要重新授权才能继续写入这个文件夹。',
@@ -200,6 +200,13 @@ export default {
     resyncBlocked: '文件夹当前不可写，未改动任何文件。',
     path: '磁盘位置：{root} / {book} / {latest}，历史版本在同目录的 {snapshots}/ 下',
     chain: '本簿 {count} 份历史版本，每份都是一个独立 JSON 文件。',
+    every: '自动镜像',
+    minutesN: '每 {n} 分钟',
+    everyHint: '距上次写入不足这个间隔时，跳过 latest.json；历史版本文件不受影响，仍随每次存档落盘。「立即存档」和「重新镜像全部版本」永远立刻写。此设置只对本设备有效。',
+    pickHint: '选好文件夹后浏览器会请求写入权限，随后立刻把现有的全部版本补写进去。副本始终在你自己的电脑上。',
+    resyncHint: '重新写入 manifest.json、每本簿的最新副本（latest.json）以及每本簿的全部历史版本文件。只写不读，也绝不删除文件夹里已有的东西。',
+    reselectHint: '换一个新的目标文件夹：现有副本立刻补写过去，旧文件夹里的文件原样保留。',
+    forgetHint: '只是停止写入：文件夹里的副本一个都不删，历史版本仍然存在这台设备的浏览器里。',
   },
   firstRun: {
     title: '先创建一本 EventBook',
