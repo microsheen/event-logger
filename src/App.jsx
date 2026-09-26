@@ -57,7 +57,7 @@ function RootView({ books, backup, bookData }) {
     await bookData.flushSave();
   }, [books.flushSettings, bookData.flushSave]);
 
-  // 导入永远是「新增 EventBook」，不覆盖任何已有簿；manifest 由 Workspace 在文件夹已连接时补写
+  // 导入永远是「新增 EventBook」，不覆盖任何已有簿；镜像文件夹的 manifest 只由 mirrorAll 整链重推时写
   const afterImport = useCallback(async () => {
     await books.refresh();
   }, [books.refresh]);

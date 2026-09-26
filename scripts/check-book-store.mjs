@@ -1,4 +1,4 @@
-// EventBook 与备份信封检查：设置守门、名称清洗、v1/v2 信封、导入防撞（纯函数层）
+// EventBook 与备份检查：设置守门、名称清洗、v1/v2 信封、导入防撞、文件夹镜像（纯函数层）
 // 用法：npm run book:check
 import {
   LANG_WEEK_START,
@@ -19,6 +19,7 @@ import {
   planImport,
   normalizeLivePayload,
 } from '../src/storage/legacy.js';
+import { resyncTree, snapshotFileName, ROOT_DIR_NAME, MANIFEST_FILE_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } from '../src/storage/folderBackup.js';
 
 const problems = [];
 function check(name, condition, detail) {
@@ -191,9 +192,95 @@ eq('缺字段补空数组', normalizeLivePayload({}).templates.length, 0);
 eq('非数组字段丢弃', normalizeLivePayload({ events: 'x' }).events.length, 0);
 eq('null 安全', normalizeLivePayload(null).events.length, 0);
 
+// —— 9. 镜像文件夹的整链重推（用内存假句柄冒充 File System Access API）——
+function fakeDir(name) {
+  const files = new Map();
+  const dirs = new Map();
+  return {
+    name,
+    kind: 'directory',
+    _files: files,
+    _dirs: dirs,
+    async getDirectoryHandle(next, opts) {
+      if (opts && opts.create) { if (!dirs.has(next)) dirs.set(next, fakeDir(next)); return dirs.get(next); }
+      if (!dirs.has(next)) throw new Error('NotFoundError: ' + next);
+      return dirs.get(next);
+    },
+    async getFileHandle(next, opts) {
+      if (!(opts && opts.create) && !files.has(next)) throw new Error('NotFoundError: ' + next);
+      if (!files.has(next)) files.set(next, '');
+      let buf = '';
+      return {
+        name: next,
+        kind: 'file',
+        async createWritable() {
+          return {
+            async write(chunk) { buf += typeof chunk === 'string' ? chunk : String(chunk); },
+            async close() { files.set(next, buf); },
+          };
+        },
+      };
+    },
+  };
+}
+function treeOf(dir, prefix, out) {
+  dir._files.forEach((text, name) => out.set(prefix + '/' + name, text));
+  dir._dirs.forEach((sub, name) => treeOf(sub, prefix + '/' + name, out));
+  return out;
+}
+function mirrorBook(id, name) {
+  return makeBook({ id, name }, { nowMs: NOW, deviceLang: 'zh' });
+}
+function mirrorSnap(bookId, iso, events, note) {
+  return { id: bookId + ':' + iso, bookId, createdAt: Date.parse(iso), iso, reason: 'manual', note, eventCount: events, payload: { events: [], templates: [] } };
+}
+const mBookA = mirrorBook('book-a', 'Alpha');
+const mBookB = mirrorBook('book-b', 'Beta 2026');
+const mSnapA1 = mirrorSnap('book-a', '2026-09-20T01:02:03.004Z', 2, 'first');
+const mSnapA2 = mirrorSnap('book-a', '2026-09-21T00:00:00.000Z', 3, '');
+const mEntries = [
+  { book: mBookA, live: { events: [1, 2], templates: [3] }, snapshots: [mSnapA1, mSnapA2] },
+  { book: mBookB, live: { events: [], templates: [] }, snapshots: [] },
+];
+const mRoot = fakeDir('picked-by-user');
+const mRes = await resyncTree(mRoot, mEntries, { nowMs: NOW });
+eq('重推报告：簿数', mRes.books, 2);
+eq('重推报告：latest 份数', mRes.latest, 2);
+eq('重推报告：快照份数', mRes.snapshots, 2);
+eq('重推写了 manifest', mRes.manifest, true);
+const mTree = treeOf(mRoot, '', new Map());
+const mBase = '/' + ROOT_DIR_NAME;
+eq('manifest 落在根目录', mTree.has(mBase + '/' + MANIFEST_FILE_NAME), true);
+const mManifest = JSON.parse(mTree.get(mBase + '/' + MANIFEST_FILE_NAME));
+eq('manifest 记录书名', mManifest.books.map((b) => b.name).join(','), 'Alpha,Beta 2026');
+eq('manifest 的目录名 = bookSlug', mManifest.books.map((b) => b.folder).join(','), [bookSlug(mBookA), bookSlug(mBookB)].join(','));
+eq('manifest 的事件计数来自 live', mManifest.books[0].events, 2);
+eq('每本各一个 latest.json', mTree.has([mBase, bookSlug(mBookA), LATEST_FILE_NAME].join('/')), true);
+const mLatestA = JSON.parse(mTree.get([mBase, bookSlug(mBookA), LATEST_FILE_NAME].join('/')));
+eq('latest.json 带 bookId', mLatestA.bookId, 'book-a');
+eq('latest.json 带全部事件', mLatestA.events.length, 2);
+eq('latest.json 带设置（周口径）', typeof mLatestA.settings.weekStartsOn, 'number');
+eq('B 本也有 latest.json（哪怕空的）', mTree.has([mBase, bookSlug(mBookB), LATEST_FILE_NAME].join('/')), true);
+const mSnapPath = [mBase, bookSlug(mBookA), SNAPSHOT_DIR_NAME, snapshotFileName(mSnapA1.iso)].join('/');
+eq('镜像文件名不含冒号（Windows 非法）', snapshotFileName(mSnapA1.iso).indexOf(':'), -1);
+eq('除扩展名外不再有点', snapshotFileName(mSnapA1.iso).replace('.json', '').indexOf('.'), -1);
+eq('快照逐个成文件', mTree.has(mSnapPath), true);
+const mSnapFile = JSON.parse(mTree.get(mSnapPath));
+eq('快照文件保留 reason', mSnapFile.reason, 'manual');
+eq('快照文件保留 note', mSnapFile.note, 'first');
+eq('快照文件带 payload 供离线恢复', !!mSnapFile.payload, true);
+const mBefore = treeOf(mRoot, '', new Map());
+const mAgain = await resyncTree(mRoot, mEntries, { nowMs: NOW + 1000 });
+const mAfter = treeOf(mRoot, '', new Map());
+eq('重推幂等：文件个数不变', mAfter.size, mBefore.size);
+eq('重推幂等：计数一致', mAgain.snapshots, mRes.snapshots);
+eq('重推不改文件名集合（只覆盖内容）', Array.from(mAfter.keys()).sort().join('|'), Array.from(mBefore.keys()).sort().join('|'));
+eq('空 entries 也只写 manifest 不炸', (await resyncTree(fakeDir('x'), [], { nowMs: NOW })).books, 0);
+eq('null entries 安全', (await resyncTree(fakeDir('y'), null, { nowMs: NOW })).manifest, true);
+
 if (problems.length) {
   console.error('book store check FAILED (' + problems.length + ' issues):');
   problems.slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞');
+console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推');

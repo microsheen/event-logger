@@ -925,6 +925,36 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('关菜单后 file input 仍在（否则导入点了没反应）', after.inputMounted === true);
   ok('导出/导入入口已并入 EventBook 菜单', '共 ' + m.items.length + ' 项');
 });
+await step('历史面板：「镜像到本地文件夹」可查看可修改（不碰系统弹窗）', async () => {
+  const { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } = await import('../src/storage/folderBackup.js');
+  await openHistory();
+  const box = await H.until('镜像块渲染', async () => (H.expr(`(() => {
+    const el = document.querySelector('[data-mirror-state]');
+    if (!el) return null;
+    return {
+      state: el.getAttribute('data-mirror-state'),
+      actions: Array.prototype.map.call(el.querySelectorAll('[data-action]'), (b) => b.getAttribute('data-action')).join(','),
+      text: el.textContent.replace(/\\s+/g, ' '),
+    };
+  })()`) || null), 10000);
+  const state = box.state;
+  ok('镜像块当前状态：' + state);
+  assert('状态取值在契约内', ['off', 'permission', 'on', 'unsupported'].indexOf(state) >= 0, String(state));
+  assert('全新 profile 里绝不假装「已连接」', state !== 'on', state);
+  assert('能看到镜像块的标题', box.text.includes(en.folder.title.replace(/^[^\w]+/, '')), box.text.slice(0, 60));
+  assert('写清磁盘落点（' + ROOT_DIR_NAME + ' / ' + LATEST_FILE_NAME + ' / ' + SNAPSHOT_DIR_NAME + '/）',
+    box.text.includes(ROOT_DIR_NAME) && box.text.includes(LATEST_FILE_NAME) && box.text.includes(SNAPSHOT_DIR_NAME), box.text.slice(0, 140));
+  if (state === 'off') {
+    assert('未连接的说明仍强调数据只在本机', box.text.includes(en.history.browserOnly), box.text.slice(0, 140));
+    assert('未连接：只给「选择文件夹」这一个入口', box.actions === 'mirror-pick', box.actions);
+  } else if (state === 'unsupported') {
+    assert('不支持：一个按钮都不给，只让用导出兜底', box.actions === '', box.actions);
+    assert('不支持：文案指向 Export', box.text.indexOf('Export') >= 0, box.text.slice(0, 140));
+  }
+  assert('镜像块渲染零 JS 异常', fatal().length === 0, fatal().join(' | '));
+  await closeHistory();
+});
+
 await step('收尾：全程零存储复核', async () => {
   const httpReqs = bag.requests.filter((r) => r.url.startsWith('http'));
   const nonGet = httpReqs.filter((r) => r.method !== 'GET');

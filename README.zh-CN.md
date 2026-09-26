@@ -53,7 +53,7 @@ npm start        # node server.js：只发静态文件 + 只读 legacy 探测，
 
 ### 可选：镜像到一个本地备份文件夹
 
-历史面板里可以选一个文件夹（需要 Chrome / Edge 的 File System Access API），之后每份快照会同步落成文件：
+历史面板里可以选一个文件夹（需要 Chrome / Edge 的 File System Access API），之后每份快照都会同步落成文件。同一个面板也能查看和修改它：连的是哪个文件夹、上次镜像到什么时候、这本书现在有几个版本，以及更换文件夹、重新授权、「🔄 把每份版本重新镜像一遍」、断开。
 
 ```
 EventLogger Backups/
@@ -61,7 +61,7 @@ EventLogger Backups/
 └── <书名>/latest.json + snapshots/<ISO>.json
 ```
 
-这个文件夹是你自己的（移动硬盘、坚果云、NAS 都行），因此"浏览器被清了"也不等于全丢。它只写不读：删掉文件夹不会影响应用运行。
+这个文件夹是你自己的（移动硬盘、坚果云、NAS 都行），因此"浏览器被清了"也不等于全丢。它只写不读：删掉文件夹不会影响应用运行。在面板里点"断开"也只是不再镜像，磁盘上已经写出去的副本一个都不动；换文件夹时会把所有 EventBook 的全部历史版本整体回补到新位置，不会留下一个"看着成功、其实是空的"目录。
 
 ### ⚠️ 会丢数据的情况
 
@@ -78,7 +78,7 @@ EventLogger Backups/
 ```bash
 npm run check    # 9 项纯函数与一致性检查（i18n / 排序 / 槽位 / 剪贴板 / 跨日拖拽 /
                  #   周口径 / 快照策略 / EventBook store / React import）
-npm run smoke    # 无头 Chrome 端到端 16 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
+npm run smoke    # 无头 Chrome 端到端 18 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
 npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 ```
 

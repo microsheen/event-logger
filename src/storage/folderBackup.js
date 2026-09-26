@@ -137,6 +137,33 @@ export async function unmirrorSnapshot(handle, book, snapshot) {
   return removeQuiet(dir, snapshotFileName(snapshot.iso));
 }
 
+// 整链重推：把「当前所有簿 + 每本的全部历史版本」整体再写一遍到目标文件夹。
+// 触发点是「刚选好文件夹 / 换了文件夹 / 重新拿到授权 / 用户手动补齐」——少了这一步，
+// 新文件夹里只会拥有此后新增的那几份，看上去镜像成功，实际接近空的（旧 bug 就在这）。
+// 严格单向：只写不读；也绝不删目标里已有的东西，断开连接后旧文件夹原样留全。
+export async function resyncTree(handle, entries, options) {
+  const opts = options || {};
+  const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+  const list = entries || [];
+  const manifest = await writeManifest(handle, list);
+  let latest = 0;
+  let snapshots = 0;
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i] || {};
+    const bk = entry.book;
+    if (!bk) continue;
+    const payload = entry.payload || entry.live || { events: [], templates: [] };
+    // force：镜像补齐不该被 latest.json 的节流吃掉；nowMs 透传给测试用
+    if (await writeLatest(handle, bk, payload, { force: true, nowMs })) latest += 1;
+    const rows = entry.snapshots || [];
+    for (let j = 0; j < rows.length; j++) {
+      await mirrorSnapshot(handle, bk, rows[j]);
+      snapshots += 1;
+    }
+  }
+  return { books: list.length, latest, snapshots, manifest: !!manifest };
+}
+
 // 删除 book 时清理它的整个子目录
 export async function removeBookFolder(handle, book) {
   const root = await rootDir(handle);

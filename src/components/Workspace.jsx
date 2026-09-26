@@ -368,6 +368,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
         onArchiveNow={handleArchiveNow}
         quota={bookData.quota}
         backup={backup}
+        onMirrorAll={transfer.mirrorAll}
         lang={lang}
       />
       {showBookSettings && (

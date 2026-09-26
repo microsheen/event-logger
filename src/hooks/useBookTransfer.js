@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { readLiveData, writeLiveData, saveBook, sanitizeBookName } from '../storage/books.js';
 import { toV2Envelope, booksFromEnvelope, planImport } from '../storage/legacy.js';
-import { createSnapshot } from '../storage/snapshots.js';
+import { createSnapshot, listSnapshots } from '../storage/snapshots.js';
 import { formatDate } from '../utils/time.js';
 import { detectLang } from '../i18n/core.js';
 
@@ -97,12 +97,22 @@ export function useBookTransfer(books, backup, guards) {
     reader.readAsText(file);
   }), [importFromText]);
 
+  // 「镜像到本地文件夹」的整链重推：manifest + 每本 latest.json + 每本的全部历史版本。
+  // 判"现在能不能写"用 canMirror()（读 ref），不能用 backup.active（读 state）：
+  // 「选完新文件夹 → 立刻补齐」是同一次事件里的连续动作，那时 active 还没被 setState 翻上来。
+  // 不可写时返回 null，让 UI 明说"什么都没改"，而不是留个近乎空的文件夹冒充备份成功。
   const mirrorAll = useCallback(async () => {
+    if (!backup.supported || !backup.canMirror()) return null;
+    if (g.beforeExport) await g.beforeExport();
     const list = books.books || [];
-    if (!list.length) return false;
-    const entries = await entriesOf(list);
-    return backup.syncManifest(entries);
-  }, [books.books, backup.syncManifest]);
+    const entries = [];
+    for (let i = 0; i < list.length; i++) {
+      entries.push({ book: list[i], live: await readLiveData(list[i].id), snapshots: await listSnapshots(list[i].id) });
+    }
+    const result = await backup.resyncAll(entries);
+    if (!result || !result.ok) return null;
+    return result.value;
+  }, [books.books, backup.supported, backup.canMirror, backup.resyncAll, g.beforeExport]);
 
   return { exportAll, exportBook, importEnvelope, importFromText, importFromFile, mirrorAll };
 }

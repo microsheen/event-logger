@@ -53,7 +53,7 @@ Eviction is tiered: keep everything within 7 days → for days 8–30 keep the e
 
 ### Optional: mirror to a local backup folder
 
-In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file:
+In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. The same panel shows and edits the mirror: which folder is connected, when it last synced, how many versions this book has, plus change folder, re-grant access, "🔄 Re-mirror every version" and disconnect.
 
 ```
 EventLogger Backups/
@@ -61,7 +61,7 @@ EventLogger Backups/
 └── <book name>/latest.json + snapshots/<ISO>.json
 ```
 
-That folder is yours (external drive, Sync service, NAS, anything), so "the browser got wiped" no longer equals "everything is gone". It is write-only: deleting the folder does not affect the app.
+That folder is yours (external drive, Sync service, NAS, anything), so "the browser got wiped" no longer equals "everything is gone". It is write-only: deleting the folder does not affect the app. "Disconnect" only stops mirroring — files already written stay exactly where they are — and switching folders re-pushes every book's whole history, so the new folder never ends up almost empty.
 
 ### ⚠️ Situations where you can lose data
 
@@ -78,7 +78,7 @@ So: for long-lived data, rely on at least one of "export files" or "the mirror b
 ```bash
 npm run check     # 9 pure-function and consistency checks (i18n / sorting / slots / clipboard /
                   #   cross-midnight dragging / week convention / snapshot policy / EventBook store / React imports)
-npm run smoke     # headless Chrome end-to-end, 16 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
+npm run smoke     # headless Chrome end-to-end, 18 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
 npm run csp:check # whether the inline script hash matches public/_headers
 ```
 

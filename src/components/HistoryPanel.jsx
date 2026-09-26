@@ -1,7 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { Fragment, useCallback, useState } from 'react';
 import { useI18n } from '../i18n/index.jsx';
 import { relativeTime, absoluteTimeLabel } from '../i18n/format.js';
 import { snapshotStats } from '../storage/snapshots.js';
+import { bookSlug } from '../storage/books.js';
+import { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } from '../storage/folderBackup.js';
 import { formatBytes, formatPercent } from '../utils/size.js';
 
 const overlayStyle = {
@@ -31,6 +33,13 @@ const errorStyle = {
   fontSize: '11px', color: 'var(--color-danger)', background: 'var(--color-danger-light)',
   borderRadius: '6px', padding: '6px 8px', lineHeight: 1.6, wordBreak: 'break-all',
 };
+const mirrorBoxStyle = { borderTop: '1px dashed var(--color-border)', paddingTop: '8px' };
+const mirrorHeadStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, marginBottom: '4px' };
+const mirrorOkStyle = { fontSize: '11px', color: 'var(--color-accent)', lineHeight: 1.6, marginTop: '6px' };
+const mirrorRowStyle = { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' };
+// 镜像状态的四个取值同时是 data-mirror-state 的契约（smoke 第 17 步按它断言）
+const MIRROR_PILL = { on: 'history.mirrored', permission: 'folder.statePermission', off: 'folder.none', unsupported: 'folder.stateUnsupported' };
+const MIRROR_TONE = { on: 'lock', permission: 'danger', off: '', unsupported: '' };
 const listStyle = { flex: 1, overflowY: 'auto', padding: '6px 0' };
 const rowStyle = (active) => ({
   padding: '10px 18px', borderBottom: '1px solid var(--color-border)',
@@ -55,11 +64,13 @@ function reasonKey(reason) {
 }
 
 export default function HistoryPanel({
-  open, onClose, book, snapshots, previewId, onPreview, onExitPreview, onRestore, onArchiveNow, quota, backup,
+  open, onClose, book, snapshots, previewId, onPreview, onExitPreview, onRestore, onArchiveNow, quota, backup, onMirrorAll,
 }) {
   const { lang, tr } = useI18n();
   const [busy, setBusy] = useState(false);
   const [restoreId, setRestoreId] = useState(null);
+  const [mirrorBusy, setMirrorBusy] = useState(false);
+  const [mirrorNote, setMirrorNote] = useState(null);   // { tone: 'ok' | 'err', text }
 
   const list = snapshots || [];
   const stats = snapshotStats(list);
@@ -81,6 +92,37 @@ export default function HistoryPanel({
     setBusy(true);
     try { await onRestore(snapshot); } finally { setBusy(false); }
   }, [busy, onRestore]);
+
+  // 镜像文件夹：查看（连到哪儿、上次镜像、落在磁盘什么位置）+ 修改（选、换、再授权、补齐、断开）
+  const mirrorState = !backup.supported ? 'unsupported' : (backup.active ? 'on' : (backup.needsPermission ? 'permission' : 'off'));
+
+  const resync = useCallback(async () => {
+    const result = onMirrorAll ? await onMirrorAll() : null;
+    if (!result) { setMirrorNote({ tone: 'err', text: tr('folder.resyncBlocked') }); return; }
+    setMirrorNote({ tone: 'ok', text: tr('folder.resyncDone', { books: result.books, snapshots: result.snapshots }) });
+  }, [onMirrorAll, tr]);
+
+  const runMirror = useCallback(async (action) => {
+    if (mirrorBusy) return;
+    setMirrorBusy(true);
+    setMirrorNote(null);
+    try {
+      if (action === 'pick') {
+        const picked = await backup.select();
+        if (picked.cancelled) return;                       // 用户在系统弹窗里按了取消：什么都没发生
+        if (!picked.ok) { setMirrorNote({ tone: 'err', text: tr('folder.needPermission') }); return; }
+      } else if (action === 'grant') {
+        const granted = await backup.grant();
+        if (!granted.ok) { setMirrorNote({ tone: 'err', text: tr('folder.needPermission') }); return; }
+      } else if (action === 'forget') {
+        await backup.forget();                              // 只断连接：磁盘上的副本一个都不动
+        return;
+      }
+      await resync();                                       // 选完 / 授权完立刻整链补齐，别留一个近乎空的文件夹
+    } finally {
+      setMirrorBusy(false);
+    }
+  }, [mirrorBusy, backup, resync, tr]);
 
   if (!open) return null;
 
@@ -106,31 +148,54 @@ export default function HistoryPanel({
               {tr('history.quotaHint')}
             </div>
           )}
-          <div style={{ borderTop: '1px dashed var(--color-border)', paddingTop: '8px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>{tr('folder.title')}</div>
-            {!backup.supported ? (
+          <div style={mirrorBoxStyle} data-mirror-state={mirrorState}>
+            <div style={mirrorHeadStyle}>
+              <span>{tr('folder.title')}</span>
+              <span style={tagStyle(MIRROR_TONE[mirrorState])}>{tr(MIRROR_PILL[mirrorState])}</span>
+            </div>
+            {mirrorState === 'unsupported' && (
               <div style={noteStyle}>{tr('folder.unsupported')}</div>
-            ) : backup.active ? (
-              <div style={noteStyle}>
-                {tr('folder.connected', { name: backup.rootName })}
-                {' · '}
-                {backup.lastSyncAt ? tr('folder.lastSync', { time: relativeTime(backup.lastSyncAt, lang) }) : tr('folder.none')}
-                {' · '}
-                {tr('history.mirrored')}
-                <div style={{ marginTop: '6px' }}>
-                  <button style={ghostBtnStyle} onClick={backup.forget}>{tr('folder.forget')}</button>
+            )}
+            {mirrorState !== 'unsupported' && (
+              <Fragment>
+                {mirrorState === 'on' && (
+                  <div style={noteStyle}>
+                    {tr('folder.connected', { name: backup.rootName })}
+                    {' · '}
+                    {backup.lastSyncAt ? tr('folder.lastSync', { time: relativeTime(backup.lastSyncAt, lang) }) : tr('folder.none')}
+                  </div>
+                )}
+                {mirrorState === 'permission' && (
+                  <div style={noteStyle}>{tr('folder.needPermission')}</div>
+                )}
+                {mirrorState === 'off' && (
+                  <div style={noteStyle}>{tr('folder.intro')} {'·'} {tr('history.browserOnly')}</div>
+                )}
+                <div style={noteStyle}>
+                  {tr('folder.path', { root: ROOT_DIR_NAME, book: book ? bookSlug(book) : '-', latest: LATEST_FILE_NAME, snapshots: SNAPSHOT_DIR_NAME })}
                 </div>
-              </div>
-            ) : (
-              <div style={noteStyle}>
-                {tr('folder.intro')}
-                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                  <button style={ghostBtnStyle} onClick={backup.select}>{tr('folder.pick')}</button>
-                  {backup.needsPermission && (
-                    <button style={ghostBtnStyle} onClick={backup.grant}>{tr('folder.grant')}</button>
+                <div style={noteStyle}>{tr('folder.chain', { count: stats.count })}</div>
+                <div style={mirrorRowStyle}>
+                  {(mirrorState === 'off' || mirrorState === 'permission') && (
+                    <button style={ghostBtnStyle} data-action="mirror-pick" disabled={mirrorBusy} onClick={() => runMirror('pick')}>{tr('folder.pick')}</button>
+                  )}
+                  {mirrorState === 'permission' && (
+                    <button style={ghostBtnStyle} data-action="mirror-grant" disabled={mirrorBusy} onClick={() => runMirror('grant')}>{tr('folder.grant')}</button>
+                  )}
+                  {mirrorState === 'on' && (
+                    <Fragment>
+                      <button style={ghostBtnStyle} data-action="mirror-resync" disabled={mirrorBusy} onClick={() => runMirror('resync')}>{mirrorBusy ? tr('folder.mirroring') : tr('folder.resync')}</button>
+                      <button style={ghostBtnStyle} data-action="mirror-reselect" disabled={mirrorBusy} onClick={() => runMirror('pick')}>{tr('folder.reselect')}</button>
+                    </Fragment>
+                  )}
+                  {(mirrorState === 'on' || mirrorState === 'permission') && (
+                    <button style={ghostBtnStyle} data-action="mirror-forget" disabled={mirrorBusy} onClick={() => runMirror('forget')}>{tr('folder.forget')}</button>
                   )}
                 </div>
-              </div>
+                {mirrorNote && (
+                  <div style={mirrorNote.tone === 'ok' ? mirrorOkStyle : { ...errorStyle, marginTop: '6px' }}>{mirrorNote.text}</div>
+                )}
+              </Fragment>
             )}
             {backup.lastError && <div style={{ ...errorStyle, marginTop: '6px' }}>{tr('folder.failed', { message: backup.lastError })}</div>}
           </div>
