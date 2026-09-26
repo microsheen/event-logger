@@ -42,7 +42,7 @@ npm start        # node server.js：只发静态文件 + 只读 legacy 探测，
 | `meta` | `key` | 备份文件夹句柄（`backupDirectory`） |
 
 - 首次启动会走"首启引导"：新建第一本 EventBook，或者（本机有的话）导入旧版 `data.json`。
-- 导出 / 导入都在左上角的 EventBook 菜单里（「数据与备份」段）：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。**
+- 导出 / 导入都在左上角的 EventBook 菜单里（「数据与备份」段）：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。** 历史面板的工具栏里另有「⬇️ 导出全部」快捷按钮：同一份实现，任何浏览器都能用，不依赖文件夹镜像。
 - 换设备 / 换浏览器的唯一办法就是导出再导入 —— 服务器上没有第二份可以拉。
 
 ### 历史版本与保留策略
@@ -78,7 +78,7 @@ EventLogger Backups/
 ```bash
 npm run check    # 9 项纯函数与一致性检查（i18n / 排序 / 槽位 / 剪贴板 / 跨日拖拽 /
                  #   周口径 / 快照策略 / EventBook store / React import）
-npm run smoke    # 无头 Chrome 端到端 18 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
+npm run smoke    # 无头 Chrome 端到端 17 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
 npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 ```
 

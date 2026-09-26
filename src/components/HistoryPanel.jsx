@@ -20,6 +20,7 @@ const titleStyle = { fontSize: '16px', fontWeight: 700 };
 const subStyle = { fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' };
 const closeBtnStyle = { background: 'transparent', fontSize: '18px', color: 'var(--color-text-secondary)', padding: '0 6px' };
 const toolbarStyle = { padding: '12px 18px', borderBottom: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '8px', flexShrink: 0 };
+const toolRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' };
 const primaryBtnStyle = {
   padding: '9px 14px', borderRadius: 'var(--radius)', background: 'var(--color-accent)',
   color: '#fff', fontWeight: 600, fontSize: '13px',
@@ -37,7 +38,7 @@ const mirrorBoxStyle = { borderTop: '1px dashed var(--color-border)', paddingTop
 const mirrorHeadStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, marginBottom: '4px' };
 const mirrorOkStyle = { fontSize: '11px', color: 'var(--color-accent)', lineHeight: 1.6, marginTop: '6px' };
 const mirrorRowStyle = { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' };
-// 镜像状态的四个取值同时是 data-mirror-state 的契约（smoke 第 17 步按它断言）
+// 镜像状态的四个取值同时是 data-mirror-state 的契约（smoke 第 16 步按它断言）
 const MIRROR_PILL = { on: 'history.mirrored', permission: 'folder.statePermission', off: 'folder.none', unsupported: 'folder.stateUnsupported' };
 const MIRROR_TONE = { on: 'lock', permission: 'danger', off: '', unsupported: '' };
 const listStyle = { flex: 1, overflowY: 'auto', padding: '6px 0' };
@@ -64,13 +65,14 @@ function reasonKey(reason) {
 }
 
 export default function HistoryPanel({
-  open, onClose, book, snapshots, previewId, onPreview, onExitPreview, onRestore, onArchiveNow, quota, backup, onMirrorAll,
+  open, onClose, book, snapshots, previewId, onPreview, onExitPreview, onRestore, onArchiveNow, quota, backup, onMirrorAll, onExportAll,
 }) {
   const { lang, tr } = useI18n();
   const [busy, setBusy] = useState(false);
   const [restoreId, setRestoreId] = useState(null);
   const [mirrorBusy, setMirrorBusy] = useState(false);
   const [mirrorNote, setMirrorNote] = useState(null);   // { tone: 'ok' | 'err', text }
+  const [exportBusy, setExportBusy] = useState(false);
 
   const list = snapshots || [];
   const stats = snapshotStats(list);
@@ -94,6 +96,13 @@ export default function HistoryPanel({
   }, [busy, onRestore]);
 
   // 镜像文件夹：查看（连到哪儿、上次镜像、落在磁盘什么位置）+ 修改（选、换、再授权、补齐、断开）
+  // 导出全部：与镜像无关的兜底通路，任何浏览器都能用（Firefox / Safari 不支持文件夹镜像）
+  const doExportAll = useCallback(async () => {
+    if (exportBusy || !onExportAll) return;
+    setExportBusy(true);
+    try { await onExportAll(); } finally { setExportBusy(false); }
+  }, [exportBusy, onExportAll]);
+
   const mirrorState = !backup.supported ? 'unsupported' : (backup.active ? 'on' : (backup.needsPermission ? 'permission' : 'off'));
 
   const resync = useCallback(async () => {
@@ -140,7 +149,12 @@ export default function HistoryPanel({
         </div>
 
         <div style={toolbarStyle}>
-          <button style={primaryBtnStyle} onClick={doArchive} disabled={busy} data-action="archive-now">{tr('history.archiveNow')}</button>
+          <div style={toolRowStyle}>
+            <button style={primaryBtnStyle} onClick={doArchive} disabled={busy} data-action="archive-now">{tr('history.archiveNow')}</button>
+            {onExportAll && (
+              <button style={ghostBtnStyle} onClick={doExportAll} disabled={busy || exportBusy} data-action="export-all" title={tr('history.exportAllHint')}>{exportBusy ? tr('history.exporting') : tr('history.exportAll')}</button>
+            )}
+          </div>
           {quota && (
             <div style={noteStyle}>
               {tr('history.quota', { used: formatBytes(quota.usage) + ' (' + formatPercent(quota.ratio) + ')', total: formatBytes(quota.quota) })}

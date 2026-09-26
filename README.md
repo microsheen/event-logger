@@ -42,7 +42,7 @@ Browser IndexedDB, database `event-logger` (version 1), four stores:
 | `meta` | `key` | the backup folder handle (`backupDirectory`) |
 
 - The first launch runs the onboarding: create the first EventBook, or — if one exists on this machine — import the old `data.json`.
-- Export / import live in the EventBook menu at the top left (the "Data & backup" section): export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.**
+- Export / import live in the EventBook menu at the top left (the "Data & backup" section): export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.** The history panel toolbar also carries a "⬇️ Export all" shortcut: same single implementation, works in every browser, no folder mirroring needed.
 - The only way to move between devices or browsers is export then import — there is no second copy on a server to pull.
 
 ### Past versions and the retention policy
@@ -78,7 +78,7 @@ So: for long-lived data, rely on at least one of "export files" or "the mirror b
 ```bash
 npm run check     # 9 pure-function and consistency checks (i18n / sorting / slots / clipboard /
                   #   cross-midnight dragging / week convention / snapshot policy / EventBook store / React imports)
-npm run smoke     # headless Chrome end-to-end, 18 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
+npm run smoke     # headless Chrome end-to-end, 17 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
 npm run csp:check # whether the inline script hash matches public/_headers
 ```
 

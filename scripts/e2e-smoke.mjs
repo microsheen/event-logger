@@ -925,7 +925,7 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('关菜单后 file input 仍在（否则导入点了没反应）', after.inputMounted === true);
   ok('导出/导入入口已并入 EventBook 菜单', '共 ' + m.items.length + ' 项');
 });
-await step('历史面板：「镜像到本地文件夹」可查看可修改（不碰系统弹窗）', async () => {
+await step('历史面板：镜像块可查看可修改 + 工具栏「导出全部」（不碰系统弹窗、不触发下载）', async () => {
   const { ROOT_DIR_NAME, LATEST_FILE_NAME, SNAPSHOT_DIR_NAME } = await import('../src/storage/folderBackup.js');
   await openHistory();
   const box = await H.until('镜像块渲染', async () => (H.expr(`(() => {
@@ -952,6 +952,24 @@ await step('历史面板：「镜像到本地文件夹」可查看可修改（�
     assert('不支持：文案指向 Export', box.text.indexOf('Export') >= 0, box.text.slice(0, 140));
   }
   assert('镜像块渲染零 JS 异常', fatal().length === 0, fatal().join(' | '));
+  // 工具栏里的「导出全部」：只验结构，绝不点击（headless 点了会触发下载）
+  const ea = await H.expr(`(() => {
+    const b = document.querySelector('[data-action="export-all"]');
+    if (!b) return null;
+    const box = document.querySelector('[data-mirror-state]');
+    return {
+      text: b.textContent.trim(),
+      disabled: b.disabled,
+      outside: !(box && box.contains(b)),
+      hint: b.title.length > 0,
+      headerButtons: document.querySelectorAll('header button').length,
+    };
+  })()`);
+  assert('工具栏里有「导出全部」按钮', !!ea, ea ? JSON.stringify(ea) : 'null');
+  assert('它不属于镜像块（不依赖文件夹能力）', !!ea && ea.outside === true, JSON.stringify(ea));
+  assert('可点且带 tooltip 说明', !!ea && ea.disabled === false && ea.hint === true, JSON.stringify(ea));
+  assert('文案来自 i18n', !!ea && ea.text === en.history.exportAll, ea && ea.text);
+  assert('顶栏仍是两个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 2, ea && String(ea.headerButtons));
   await closeHistory();
 });
 
