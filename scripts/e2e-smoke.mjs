@@ -228,6 +228,21 @@ const BOOTSTRAP = `window.__smk = (function () {
       return { ok: true, value: el.value };
     },
     inputValue: function (sel) { var el = document.querySelector(sel); return el ? el.value : null; },
+    // 顶栏菜单的结构探针：项文本 / 键盘可达性 / file input 的挂载位置
+    menu: function () {
+      var panel = document.querySelector('[role="menu"]');
+      var input = document.querySelector('input[type="file"]');
+      var items = panel ? Array.prototype.slice.call(panel.querySelectorAll('[role="menuitem"]')).map(function (e) { return norm(e.textContent); }) : [];
+      return {
+        open: !!panel,
+        items: items,
+        tabbable: panel ? panel.querySelectorAll('[role="menuitem"][tabindex="0"]').length : 0,
+        triggers: document.querySelectorAll('[role="button"][aria-haspopup="menu"]').length,
+        inputMounted: !!input && document.body.contains(input),
+        inputInsideMenu: !!(panel && input && panel.contains(input)),
+        headerButtons: document.querySelectorAll('header button').length,
+      };
+    },
     today: function () { var d = new Date(); var p = function (n) { return String(n).length < 2 ? '0' + n : String(n); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); },
     idb: function (store, bookId) {
       return new Promise(function (res, rej) {
@@ -892,6 +907,24 @@ await step('关掉再打开：数据仍在（IndexedDB 持久 + 可离线打开�
   assert('零 JS 异常 / 零 CSP 违规（含重载）', fatal().length === 0, fatal().join(' | '));
 });
 
+await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input 不会被菜单卸载', async () => {
+  await H.clickText('header span', '🗂', 0);
+  const m = await until(async () => { const x = await H.call('menu'); return x.open ? x : null; }, 'EventBook 菜单打开');
+  const wantExportAll = en.book.exportAll.replace('{n}', '2');
+  assert('菜单里有「数据与备份」段的导出全部', m.items.indexOf(wantExportAll) >= 0, JSON.stringify(m.items));
+  assert('菜单里有「导入为新的 EventBook」', m.items.indexOf(en.book.importFile) >= 0, JSON.stringify(m.items));
+  assert('导出此簿仍在（单本作用域没被合并掉）', m.items.indexOf(en.book.exportOne) >= 0, JSON.stringify(m.items));
+  assert('簿设置 / 删除此簿仍在原位', m.items.indexOf(en.book.settings) >= 0 && m.items.indexOf(en.book.remove) >= 0, JSON.stringify(m.items));
+  assert('每个菜单项都能键盘聚焦', m.tabbable === m.items.length, m.tabbable + '/' + m.items.length);
+  assert('簿切换器本身可键盘打开', m.triggers >= 1, String(m.triggers));
+  assert('顶栏只剩历史 / 模板两个按钮', m.headerButtons === 2, String(m.headerButtons));
+  assert('隐藏的 file input 已挂载', m.inputMounted);
+  assert('file input 不在菜单面板里', m.inputInsideMenu === false);
+  await H.clickText('header span', '🗂', 0);
+  const after = await until(async () => { const x = await H.call('menu'); return x.open ? null : x; }, '菜单已关闭');
+  assert('关菜单后 file input 仍在（否则导入点了没反应）', after.inputMounted === true);
+  ok('导出/导入入口已并入 EventBook 菜单', '共 ' + m.items.length + ' 项');
+});
 await step('收尾：全程零存储复核', async () => {
   const httpReqs = bag.requests.filter((r) => r.url.startsWith('http'));
   const nonGet = httpReqs.filter((r) => r.method !== 'GET');

@@ -20,8 +20,6 @@ export default {
   },
   header: {
     templates: '📋 Templates',
-    export: '📤 Export Data',
-    import: '📥 Import Data',
     language: 'Language',
     importBadFile: 'Import failed: invalid file',
     history: '🕘 History',
@@ -139,6 +137,9 @@ export default {
     settings: '⚙️ Settings',
     remove: '🗑 Delete this book',
     exportOne: '📤 Export this book',
+    dataLabel: '🗄 Data & backup',
+    exportAll: '📦 Export all books ({n})',
+    importFile: '📥 Import as new EventBook',
     menu: '🗂 {name}',
   },
   history: {

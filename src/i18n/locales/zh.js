@@ -20,8 +20,6 @@ export default {
   },
   header: {
     templates: '📋 模板管理',
-    export: '📤 导出数据',
-    import: '📥 导入数据',
     language: '语言',
     importBadFile: '导入失败：文件格式无效',
     history: '🕘 历史版本',
@@ -139,6 +137,9 @@ export default {
     settings: '⚙️ 簿设置',
     remove: '🗑 删除此簿',
     exportOne: '📤 导出此簿',
+    dataLabel: '🗄 数据与备份',
+    exportAll: '📦 导出全部簿（{n} 本）',
+    importFile: '📥 导入为新的 EventBook',
     menu: '🗂 {name}',
   },
   history: {

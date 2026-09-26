@@ -20,8 +20,6 @@ export default {
   },
   header: {
     templates: '📋 テンプレート',
-    export: '📤 データ出力',
-    import: '📥 データ入力',
     language: '言語',
     importBadFile: 'インポート失敗：ファイルが無効です',
     history: '🕘 履歴',
@@ -139,6 +137,9 @@ export default {
     settings: '⚙️ 設定',
     remove: '🗑 このブックを削除',
     exportOne: '📤 このブックを出力',
+    dataLabel: '🗄 データとバックアップ',
+    exportAll: '📦 全ブックを出力（{n} 冊）',
+    importFile: '📥 新規 EventBook として取り込み',
     menu: '🗂 {name}',
   },
   history: {

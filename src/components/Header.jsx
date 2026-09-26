@@ -36,6 +36,8 @@ const menuStyle = {
   background: 'var(--color-surface)', border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', zIndex: 500,
   padding: '6px 0', fontSize: '13px',
+  // 菜单加了「数据与备份」段之后项数变多，限高避免在笔记本上顶出屏幕
+  maxHeight: '70vh', overflowY: 'auto',
 };
 const menuItemStyle = (hovered, disabled) => ({
   padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '8px',
@@ -76,19 +78,32 @@ function Dropdown({ label, labelStyle, align, children }) {
   }, [open]);
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
-      <span style={{ display: 'inline-block' }} onClick={() => setOpen((v) => !v)}>
+      <span style={{ display: 'inline-block' }} role="button" tabIndex={0} aria-haspopup="menu"
+        aria-expanded={open} onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}>
         {typeof label === 'function' ? label(open) : label}
       </span>
-      {open && <div style={{ ...menuStyle, ...(align === 'right' ? { left: 'auto', right: 0 } : {}) }} onClick={() => setOpen(false)}>{children}</div>}
+      {open && (
+        <div style={{ ...menuStyle, ...(align === 'right' ? { left: 'auto', right: 0 } : {}) }} role="menu"
+          onClick={() => setOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpen(false); }}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
 function MenuItem({ children, onClick, disabled }) {
   const [hovered, setHovered] = useState(false);
+  const activate = () => {
+    if (disabled) return;
+    if (onClick) onClick();
+  };
   return (
-    <div style={menuItemStyle(hovered, disabled)} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
-      onClick={() => { if (disabled) return; if (onClick) onClick(); }}>
+    <div style={menuItemStyle(hovered, disabled)} role="menuitem" tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+      onClick={activate} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } }}>
       {children}
     </div>
   );
@@ -101,6 +116,12 @@ export default function Header({
   const { lang, setLanguage, tr } = useI18n();
   const fileRef = useRef(null);
   const allBooks = books || [];
+
+  // 文件输入框常驻在 header 根节点：Dropdown 关闭会卸载 children，
+  // 一旦把 input 挪进菜单，选完文件就收不到 change（表现为「导入点了没反应」）。
+  const pickImportFile = () => {
+    if (fileRef.current) fileRef.current.click();
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files && e.target.files[0];
@@ -133,6 +154,11 @@ export default function Header({
           <div style={menuDividerStyle} />
           <MenuItem onClick={onOpenBookSettings}>{tr('book.settings')}</MenuItem>
           <MenuItem onClick={onExportBook}>{tr('book.exportOne')}</MenuItem>
+          <div style={menuDividerStyle} />
+          <div style={menuLabelStyle}>{tr('book.dataLabel')}</div>
+          <MenuItem onClick={onExportAll}>{tr('book.exportAll', { n: allBooks.length })}</MenuItem>
+          <MenuItem onClick={pickImportFile} disabled={locked}>{tr('book.importFile')}</MenuItem>
+          <div style={menuDividerStyle} />
           <MenuItem onClick={onDeleteBook} disabled={allBooks.length <= 1}>{tr('book.remove')}</MenuItem>
         </Dropdown>
         <div style={titleStyle}>
@@ -146,8 +172,7 @@ export default function Header({
           {tr('header.history')}{historyCount ? ' (' + historyCount + ')' : ''}
         </HoverButton>
         <HoverButton onClick={onOpenTemplates} disabled={locked} title={tr('templates.title')}>{tr('header.templates')}</HoverButton>
-        <HoverButton onClick={onExportAll} title={tr('header.export')}>{tr('header.export')}</HoverButton>
-        <HoverButton onClick={() => fileRef.current && fileRef.current.click()} disabled={locked} title={tr('header.import')}>{tr('header.import')}</HoverButton>
+        {/* 导出/导入已并入左上 EventBook 菜单；input 必须留在 header 根节点常驻 */}
         <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={handleFileChange} />
         <select
           style={langSelectStyle}

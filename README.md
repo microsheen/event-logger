@@ -42,7 +42,7 @@ Browser IndexedDB, database `event-logger` (version 1), four stores:
 | `meta` | `key` | the backup folder handle (`backupDirectory`) |
 
 - The first launch runs the onboarding: create the first EventBook, or — if one exists on this machine — import the old `data.json`.
-- Export / import live in the top bar: export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.**
+- Export / import live in the EventBook menu at the top left (the "Data & backup" section): export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.**
 - The only way to move between devices or browsers is export then import — there is no second copy on a server to pull.
 
 ### Past versions and the retention policy
@@ -78,11 +78,11 @@ So: for long-lived data, rely on at least one of "export files" or "the mirror b
 ```bash
 npm run check     # 9 pure-function and consistency checks (i18n / sorting / slots / clipboard /
                   #   cross-midnight dragging / week convention / snapshot policy / EventBook store / React imports)
-npm run smoke     # headless Chrome end-to-end, 15 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
+npm run smoke     # headless Chrome end-to-end, 16 steps (real mouse dragging + reading IndexedDB directly + network fingerprint)
 npm run csp:check # whether the inline script hash matches public/_headers
 ```
 
-`npm run smoke` covers exactly the three promises above: create a book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → a final check that the whole session made zero non-GET requests.
+`npm run smoke` covers exactly the three promises above: create a book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → the slim-header check (export/import now live in the book menu) → a final check that the whole session made zero non-GET requests.
 
 Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=` target a deployed site, `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses).
 

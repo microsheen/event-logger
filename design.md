@@ -244,7 +244,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 **可选的文件夹镜像**（`folderBackup.js` + `useBackupFolder`）：`EventLogger Backups/manifest.json` 记书名↔目录与每份快照指纹，`<书名>/latest.json` 与 `<书名>/snapshots/<ISO>.json` 是可直接阅读的副本。刻意**只写不读**——它不参与应用状态，删了不影响运行，但足以在"浏览器被清"之后手动搬回来。
 
-**恢复入口一共三条**：① 历史面板选版本恢复；② 顶栏导入导出文件；③ 镜像文件夹里的 JSON 再导进来。
+**恢复入口一共三条**：① 历史面板选版本恢复；② EventBook 菜单「数据与备份」段的导出 / 导入文件；③ 镜像文件夹里的 JSON 再导进来。
 
 ---
 
@@ -293,7 +293,8 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 - `src/App.jsx` 只做三件事：装配 `useBooks` / `useBackupFolder` / `useBookData` / `useBookTransfer`、用 `activeBook.settings.language` 包住 `I18nProvider`、决定"现在该画哪一个屏"。渲染门顺序是硬性的：**不支持 IDB → 书目加载中 → 没有 book（首启引导）→ 本书数据加载中 → `Workspace`**。后两道门缺一不可，它们就是 §11 I24 那条"换书必然重挂载"的实现。
 - `src/components/Workspace.jsx` 是**唯一的页面级组件**，也是 UI 态的所有者（选中日期、日/周视图、视口槽位、弹窗开关、右键剪贴板、回放 `preview`）。它对下压一个 `guardWrite(fn)`：所有写动作先过这道闸，`readOnly`（回放中）**或**已失去单写者身份时统一 toast 拒绝——因此"只读"不需要在每个组件里各写一遍。
-- 顶栏 `Header.jsx` 持有 EventBook 切换器、语言、导出导入、备份文件夹、历史、设置入口。语言按钮写的是**当前这本书**的设置（§7.2），不是全局偏好。
+- 顶栏 `Header.jsx` 一共六个元素：EventBook 下拉、标题、"数据在本机"徽章、历史、模板、语言。凡是以"这本簿"为主语的动作都收进那个下拉——切换 / 新建 / 簿设置 / 导出此簿 / 删除此簿，外加「数据与备份」段的**导出全部簿**与**导入为新的 EventBook**（这两项原先是挂在顶栏右侧的按钮）。语言按钮写的是**当前这本书**的设置（§7.2），不是全局偏好。
+- 下拉里的"导入"不自己持有 `<input type="file">`：`Dropdown` 一关就连 children 一起卸载，input 若写在面板里，菜单关掉之后 change 事件无处落地，症状正是"点了导入没反应"。所以 input 常驻 header 根节点（`display: none`），菜单项只调 `ref.click()`。这条不变量记在 §11 I29，`smoke` 第 15 步同时断言"关菜单后 input 仍在"与"input 不在菜单面板内"。
 
 ### 6.6 单本设置、历史面板与首启引导
 
@@ -405,7 +406,7 @@ npm run check             # 串起下面 9 项，任一失败退出码 1
   imports:check           #   React 具名 API 是否都显式 import（46 文件 × 24 API）
 
 npm run csp:check         # index.html 内联脚本的 sha256 是否与 public/_headers 一致
-npm run smoke             # 无头 Chrome 端到端 15 步（详见 README）
+npm run smoke             # 无头 Chrome 端到端 16 步（详见 README）
 npm run icons             # 从 favicon.svg 生成 4 档 PWA 图标
 npm run deploy            # build → csp:check → wrangler pages deploy dist --project-name=event-logger
 ```
@@ -427,7 +428,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 发布到公网有两条路，两条都要过同一条校验链（`build` → `csp:check`）：
 
 - **本机直发**：`npx wrangler login` 一次，然后 `npm run deploy`。凭证只留在本机（`.wrangler/state`，已 gitignore）。
-- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（9 项不变量 + build + csp:check，阻断）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 15 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
+- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（9 项不变量 + build + csp:check，阻断）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 16 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
 
 Actions 需要三个仓库级配置（Settings → Secrets and variables → Actions）：secret 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，加上变量的 `DEPLOY_ENABLED`。`deploy` job 的条件是 `github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true'` —— **变量缺失或值不是字符串 `true` 时，workflow 照样检查和构建，但线上一个字节都不会变**，这就是发布总闸（job 级 `if` 读不到 `env` 上下文，所以分支名在 `if` 里写成字面量，改默认分支要同时改 `env.PRODUCTION_BRANCH` 与那行 `if`）。Pages 项目由 workflow 首次 `wrangler pages project create` 自动创建，已存在则跳过。
 
@@ -457,7 +458,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I14 | 剪贴板是瞬时内存态，绝不进 payload / 快照 / `localStorage`；粘贴不得引入新重叠（`cut` 用 `ignoreId` 排除自己） | `Workspace.clipboard` state + `hasOverlap` 前置判定 |
 | I15 | 移动结果必须整条落在目标日某个空档内、时长不变；放不下就**不写盘** | `dayDrop.freeWindowsForDay` + `clampMoveToFreeWindow`；`daydrop:check` §2/§4 |
 | I16 | 跨日期目标恒为**当前可见列**之一；`onMoveEvent` 未带非空 `dateStr` 时绝不写 `date` 键 | `columnIndexOfX` + `visibleDateStrs` + `Workspace.handleMoveEvent` |
-| I17 | **服务器永不写用户数据**：全站只有 GET，唯一读接口是只读的 `GET /api/legacy-data`（且前端只在 localhost 探测） | 架构上没有任何写接口；`smoke` 第 7/15 步逐条断言方法、请求体、跨域、URL 内容泄露 |
+| I17 | **服务器永不写用户数据**：全站只有 GET，唯一读接口是只读的 `GET /api/legacy-data`（且前端只在 localhost 探测） | 架构上没有任何写接口；`smoke` 第 7/16 步逐条断言方法、请求体、跨域、URL 内容泄露 |
 | I18 | 任何 IndexedDB 读写必须经 hooks；组件只允许 import storage 层的**纯函数与常量**。`indexedDB.open` 全站只出现在 `storage/idb.js` | §4.2 人工约束 + `grep -r "indexedDB" src`；`book:check` 只测纯逻辑即成立 |
 | I19 | LOAD 未 apply 完成前禁止落盘（挡住"挂载首帧的空写"）。`rev` 单调递增**不能**当作"写成功"的证据 | `useBookData.loadedRef`（`scheduleSave`/`flushSave` 双守）；`smoke` 第 6/10 步断言编辑真的进了 IDB |
 | I20 | `weekStartsOn` 只能来自当前 book；归一化入口只有 `normalizeWeekStart` / `normalizeSettings` | `week:check`（15372 组周窗口 + 2196 组 ISO 周号 + 3 种语言 × 7 种起点的月历表头列对齐）；`smoke` 第 4/13/14 步 |
@@ -469,6 +470,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I26 | 用了 React 具名 API 必须显式 import（漏一个就是线上白屏级 `ReferenceError`） | `npm run imports:check` |
 | I27 | `data.json` 是只读遗留物：任何代码路径都不得再写它 | `server.js` 只剩 `readFileSync`；`smoke` 用 size+mtime 指纹断言未变 |
 | I28 | 页面必须自报构建号：`<html data-build>` 由 `main.jsx` 写入，格式固定 `(sha8|dev)-yyyymmddHHMMSS[+]`，源码只经 `src/buildInfo.js` 读取 | `smoke` 第 1 步按格式断言；设置对话框页脚 `data-build` 肉眼可查 |
+| I29 | 导出 / 导入的**入口**在 EventBook 菜单里，但承载文件的 `<input type="file">` **必须常驻 header 根节点**（下拉一关就卸载 children，跟着卸载的 input 会让"导入"点了没反应）；同一只下拉必须整体键盘可达：触发器 `role=button` + `tabIndex=0` + `aria-expanded`，面板 `role=menu`，项 `role=menuitem` 且可聚焦 | `Header.jsx` 的 `pickImportFile()` 与根节点 input；`smoke` 第 15 步断言 `inputMounted`、`inputInsideMenu === false`、`tabbable === items.length`、`triggers >= 1` |
 
 ---
 
@@ -540,7 +542,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/main.jsx` | 16 | 挂载点 + 把 `BUILD_ID` 写进 `<html data-build>` |
 | `src/buildInfo.js` | 4 | 构建号的唯一出口（`__BUILD_ID__` 由 vite `define` 替换，缺值时退成 `unknown`） |
 | `src/components/Workspace.jsx` | 387 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）+ 三个 `data-*` 测试锚点 |
-| `src/components/Header.jsx` | 165 | EventBook 切换与新建、语言、导出导入、备份文件夹、历史、设置 |
+| `src/components/Header.jsx` | 190 | EventBook 下拉（切换 / 新建 / 簿设置 / 导出此簿 / 数据与备份：导出全部簿 + 导入为新簿 / 删除此簿）+ 常驻的隐藏 file input、语言、历史、模板 |
 | `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
 | `src/components/EventDialog.jsx` | 271 | 事件新建/编辑、冲突提示、模板选择与热度、存为模板 |
 | `src/components/StatsPanel.jsx` | 230 | 类别饼图、堆叠柱、排行榜（recharts，懒加载分包） |
@@ -600,14 +602,14 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
 | `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
 | `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
-| `src/i18n/locales/{zh,en,ja}.js` | 205 × 3 | 三语文案，`zh` 为源语言 |
+| `src/i18n/locales/{zh,en,ja}.js` | 206 × 3 | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
 ### `scripts/`（lint 级 CI）
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 933 | **真浏览器 15 步**：启动+构建号→首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移 |
+| `scripts/e2e-smoke.mjs` | 967 | **真浏览器 16 步**：启动+构建号→首启→建簿→设置→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→收尾零存储复核 |
 | `scripts/check-book-store.mjs` | 199 | 设置守门、书名与文件名清洗、v1/v2 信封、导入防撞 |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |

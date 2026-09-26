@@ -42,7 +42,7 @@ npm start        # node server.js：只发静态文件 + 只读 legacy 探测，
 | `meta` | `key` | 备份文件夹句柄（`backupDirectory`） |
 
 - 首次启动会走"首启引导"：新建第一本 EventBook，或者（本机有的话）导入旧版 `data.json`。
-- 导出 / 导入都在顶栏：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。**
+- 导出 / 导入都在左上角的 EventBook 菜单里（「数据与备份」段）：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。**
 - 换设备 / 换浏览器的唯一办法就是导出再导入 —— 服务器上没有第二份可以拉。
 
 ### 历史版本与保留策略
@@ -78,11 +78,11 @@ EventLogger Backups/
 ```bash
 npm run check    # 9 项纯函数与一致性检查（i18n / 排序 / 槽位 / 剪贴板 / 跨日拖拽 /
                  #   周口径 / 快照策略 / EventBook store / React import）
-npm run smoke    # 无头 Chrome 端到端 15 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
+npm run smoke    # 无头 Chrome 端到端 16 步（真鼠标拖拽 + 直接读 IndexedDB + 网络指纹）
 npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 ```
 
-`npm run smoke` 覆盖的正是上面三条承诺：建书 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 收尾复核全程零非 GET 请求。
+`npm run smoke` 覆盖的正是上面三条承诺：建书 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 顶栏瘦身复核 → 收尾复核全程零非 GET 请求。
 
 选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=` 打已部署的站点、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）。
 
