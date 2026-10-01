@@ -998,7 +998,7 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('簿设置 / 删除此簿仍在原位', m.items.indexOf(en.book.settings) >= 0 && m.items.indexOf(en.book.remove) >= 0, JSON.stringify(m.items));
   assert('每个菜单项都能键盘聚焦', m.tabbable === m.items.length, m.tabbable + '/' + m.items.length);
   assert('簿切换器本身可键盘打开', m.triggers >= 1, String(m.triggers));
-  assert('顶栏只剩历史 / 模板两个按钮', m.headerButtons === 2, String(m.headerButtons));
+  assert('顶栏是历史 / 模板 / 帮助三个按钮（帮助是只读入口）', m.headerButtons === 3, String(m.headerButtons));
   assert('隐藏的 file input 已挂载', m.inputMounted);
   assert('file input 不在菜单面板里', m.inputInsideMenu === false);
   await H.clickText('header span', '🗂', 0);
@@ -1074,7 +1074,7 @@ await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查�
   assert('它不属于镜像块（不依赖文件夹能力）', !!ea && ea.outside === true, JSON.stringify(ea));
   assert('可点且带 tooltip 说明', !!ea && ea.disabled === false && ea.hint === true, JSON.stringify(ea));
   assert('文案来自 i18n', !!ea && ea.text === en.history.exportAll, ea && ea.text);
-  assert('顶栏仍是两个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 2, ea && String(ea.headerButtons));
+  assert('顶栏仍是历史 / 模板 / 帮助三个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 3, ea && String(ea.headerButtons));
 
   // ── 「已连接」那一档必须真渲染一遍才验得到。headless 里弹不出系统目录选择框，所以把一个
   //    纯数据句柄写进 meta 再重载：checkPermission 对「没有 queryPermission 的句柄」按 granted
@@ -1134,6 +1134,85 @@ await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查�
   assert('未连接：仍然只给「选择文件夹」这一个入口', offAgain.actions === 'mirror-pick', offAgain.actions);
   assert('伪造已连接 + 两次重载，全程零 JS 异常', fatal().length === 0, fatal().join(' | '));
   await closeHistory();
+});
+
+await step('使用帮助：顶栏入口 / 打开 / 目录跳节 / 跟随语言 / Esc 关闭', async () => {
+  const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  // 面板里的结构探针：一次求值读全，重渲染不会让两次读取落在不同帧上
+  const helpProbe = () => H.expr(`(() => {
+    const p = document.querySelector('[data-help-dialog]');
+    if (!p) return null;
+    const secs = p.querySelectorAll('[data-help-section]');
+    const navs = p.querySelectorAll('[data-help-nav]');
+    const scroller = p.querySelector('[data-help-scroll]');
+    const norm = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim();
+    const attr = (list, name) => Array.prototype.map.call(list, (e) => e.getAttribute(name)).join(',');
+    return {
+      title: p.getAttribute('aria-label'),
+      sections: secs.length,
+      navs: navs.length,
+      sectionKeys: attr(secs, 'data-help-section'),
+      navKeys: attr(navs, 'data-help-nav'),
+      sectionTitles: Array.prototype.map.call(secs, (e) => norm(e.firstElementChild ? e.firstElementChild.textContent : '')),
+      navTitles: Array.prototype.map.call(navs, (e) => norm(e.textContent)),
+      bullets: p.querySelectorAll('li').length,
+      intro: norm((p.querySelector('[data-help-intro]') || {}).textContent),
+      closeBtn: !!p.querySelector('[data-action=\\'help-close\\']'),
+      scrolled: scroller ? Math.round(scroller.scrollTop) : -1,
+      chars: p.innerText.replace(/\\s+/g, ' ').length,
+    };
+  })()`);
+  const pressEscape = async () => {
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+  };
+
+  assert('顶栏帮助入口在英文界面上叫「' + en.help.entry + '」', await H.call('has', en.help.entry));
+  await H.clickText('button', en.help.entry);
+  const h1 = await H.until('英文帮助面板打开', async () => (await helpProbe()) || null, 10000);
+  assert('面板标题来自 i18n：' + h1.title, h1.title === en.help.title, String(h1.title));
+  assert('八个小节全部渲染', h1.sections === 8, h1.sectionKeys);
+  assert('小节顺序等于组件里的 SECTION_ORDER', h1.sectionKeys === 'start,record,adjust,view,book,backup,privacy,faq', h1.sectionKeys);
+  assert('目录 chip 也是八个且与小节一一对应', h1.navs === 8 && h1.navKeys === h1.sectionKeys, h1.navKeys + ' / ' + h1.sectionKeys);
+  assert('目录 chip 文案 = 各节标题', JSON.stringify(h1.navTitles) === JSON.stringify(h1.sectionTitles), h1.navTitles.join(' | '));
+  assert('八节标题逐一对上英文字典',
+    h1.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => en.help.sections[k].title).join(' || '),
+    h1.sectionTitles.join(' | '));
+  assert('每节都有正文（合计 ' + h1.bullets + ' 条），且成段不是空壳', h1.bullets >= 24 && h1.chars >= 1200, h1.bullets + ' 条 / ' + h1.chars + ' 字');
+  assert('导语来自字典（en）', h1.intro === norm(en.help.intro), h1.intro.slice(0, 60));
+  assert('关闭按钮存在', h1.closeBtn === true);
+
+  // 目录跳节：点最后一节的 chip，面板内部必须真的滚动起来
+  await H.clickText('[data-help-nav]', en.help.sections.faq.title);
+  const jumped = await H.until('点目录后滚到最后一节', async () => { const x = await helpProbe(); return x && x.scrolled > 0 ? x : null; }, 8000);
+  assert('跳转后滚动位置 > 0', jumped.scrolled > 0, String(jumped.scrolled));
+  assert('跳转不改变结构（仍八节、标题不变）', jumped.sections === 8 && jumped.title === en.help.title);
+
+  await pressEscape();
+  assert('Esc 关闭面板', (await H.until('Esc 后面板消失', async () => ((await helpProbe()) === null ? true : null), 8000)) === true);
+
+  // 三语齐平由 i18n:check 守键集合，这里只验「界面语言一换，帮助正文立刻跟着换」
+  await H.call('selectSet', 'header select', 'zh');
+  await H.until('界面切到中文', () => H.call('has', zh.header.history), 10000);
+  await H.clickText('button', zh.help.entry);
+  const h2 = await H.until('中文帮助面板打开', async () => (await helpProbe()) || null, 10000);
+  assert('中文标题：' + h2.title, h2.title === zh.help.title, String(h2.title));
+  assert('中文八节标题逐一对上中文字典',
+    h2.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => zh.help.sections[k].title).join(' || '),
+    h2.sectionTitles.join(' | '));
+  assert('导语来自字典（zh）', h2.intro === norm(zh.help.intro), h2.intro.slice(0, 60));
+  assert('换语言不换结构与锚点', h2.sections === 8 && h2.navs === 8 && h2.sectionKeys === h1.sectionKeys, h2.sectionKeys);
+  assert('正文条数与语言无关', h2.bullets === h1.bullets, h2.bullets + ' vs ' + h1.bullets);
+
+  // 关闭按钮（不是 Esc）也要关得掉，并且回到英文界面
+  await H.click(await H.call('act', 'help-close'), 'help-close');
+  await H.until('关闭按钮收掉面板', async () => ((await helpProbe()) === null ? true : null), 8000);
+  await H.call('selectSet', 'header select', 'en');
+  await H.until('切回英文', () => H.call('has', en.header.history), 10000);
+
+  const hb = await H.call('menu');
+  assert('帮助入口不搅动顶栏结构', hb.headerButtons === 3, String(hb.headerButtons));
+  assert('帮助面板全程零 JS 异常', fatal().length === 0, fatal().join(' | '));
 });
 
 await step('收尾：全程零存储复核', async () => {

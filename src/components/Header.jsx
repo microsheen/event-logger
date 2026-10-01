@@ -111,7 +111,7 @@ function MenuItem({ children, onClick, disabled }) {
 
 export default function Header({
   book, books, onSelectBook, onCreateBook, onOpenBookSettings, onDeleteBook,
-  onExportBook, onExportAll, onImportFile, onOpenTemplates, onOpenHistory, historyCount, locked,
+  onExportBook, onExportAll, onImportFile, onOpenTemplates, onOpenHistory, onOpenHelp, historyCount, locked,
 }) {
   const { lang, setLanguage, tr } = useI18n();
   const fileRef = useRef(null);
@@ -184,6 +184,8 @@ export default function Header({
         >
           {LANGS.map((l) => (<option key={l.code} value={l.code}>🌐 {l.name}</option>))}
         </select>
+        {/* 使用帮助是纯只读的内容入口：刻意不读 locked，回放历史或他页编辑时也要能查说明 */}
+        <HoverButton onClick={onOpenHelp} title={tr('help.entryTip')}>{tr('help.entry')}</HoverButton>
       </div>
     </header>
   );

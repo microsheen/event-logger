@@ -98,7 +98,7 @@ jobs:
           test -f dist/sw.js
           ls -la dist dist/assets
 
-      - name: 15-step end-to-end smoke against a real browser
+      - name: 18-step end-to-end smoke against a real browser
         run: npm run smoke -- --no-sandbox
 
   deploy:

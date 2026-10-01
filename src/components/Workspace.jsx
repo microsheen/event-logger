@@ -9,6 +9,7 @@ const StatsPanel = lazy(() => import('./StatsPanel.jsx'));
 import Toast from './Toast.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
 import BookSettingsDialog from './BookSettingsDialog.jsx';
+import HelpDialog from './HelpDialog.jsx';
 import { useEvents } from '../hooks/useEvents.js';
 import { useTemplates } from '../hooks/useTemplates.js';
 import { useI18n } from '../i18n/index.jsx';
@@ -62,6 +63,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
   const [dialogState, setDialogState] = useState(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   // 弹窗开关住在 useBooks（App 层），这里只派生：整棵重挂载（换书 / ⏳ loading）都不会把它弄丢
   const showBookSettings = books.settingsOpenFor != null && books.settingsOpenFor === book.id;
   const [statsScope, setStatsScope] = useState(settings.statsScope);
@@ -309,6 +311,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
         onImportFile={handleImportFile}
         onOpenTemplates={handleTemplatesOpen}
         onOpenHistory={() => setShowHistory(true)}
+        onOpenHelp={() => setShowHelp(true)}
         historyCount={bookData.snapshots.length}
         locked={readOnly}
       />
@@ -372,6 +375,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
         onExportAll={handleExportAll}
         lang={lang}
       />
+      <HelpDialog open={showHelp} onClose={() => setShowHelp(false)} />
       {showBookSettings && (
         <BookSettingsDialog book={book} onClose={() => books.closeSettings()} onSave={handleSaveBookSettings} />
       )}

@@ -226,4 +226,90 @@ export default {
     viewMore: '{n} more files not listed',
     viewNote: 'View only: the app never reads data back from this folder, and deleting it does not affect your log. Up to {limit} names per folder.',
   },
+  help: {
+    entry: '❓ Help',
+    entryTip: 'How this site works: logging, editing times, backups, and where the data actually lives',
+    title: '❓ Help',
+    intro: 'Everything runs inside your browser: the data lives only in the IndexedDB of this device and the server stores none of it. This guide follows the interface language.',
+    navLabel: 'Jump to',
+    sections: {
+      start: {
+        title: '① First launch',
+        lines: [
+          'You start by creating an EventBook. Name, week start day and interface language are properties of that book, so switching books can change both the language and how weeks are cut.',
+          'The 🗂 menu at the top left is where you switch books, create one, open book settings, export, import and delete.',
+          'There is no account, no sign-in and no sync. The URL is public, but every event stays in the browser where you logged it.',
+          'The local-data-only badge in the header is a fact rather than a slogan: the site never issues a write request and the server hosts static files only.',
+        ],
+      },
+      record: {
+        title: '② Log something',
+        lines: [
+          'The timeline splits a day into 144 slots and one slot is 10 minutes; every duration snaps to that grid.',
+          'Press and drag on an empty slot to select a range, then release: the create dialog opens. Nothing is written until you confirm.',
+          'Give the event a name, pick a category (Work / Life / Study) and set the start and end. You can also attach a template, or save the entry as one for next time.',
+          'Overlapping an existing event is blocked outright: change the time or cancel. Overlapping events can never end up in storage.',
+          'Clicking an event bar you did not drag opens it for editing; every delete asks first.',
+        ],
+      },
+      adjust: {
+        title: '③ Edit times, move, copy and paste',
+        lines: [
+          'Drag an event bar to move it and its length stays fixed. Dropping it on another day column auto-avoids into the nearest free window; if the day cannot fit it the whole gesture is cancelled instead of shrinking your event.',
+          'Drag the top edge of a bar to change its start, the bottom edge to change its end, still snapped to 10 minutes. The live drop preview and the final write follow the same rule, so what you see is where it lands.',
+          'Right-click an event bar for copy / cut; right-click an empty slot for paste. With an empty clipboard paste is greyed out but the menu still appears, so you can always tell that this spot accepts pastes.',
+          'Paste behaves differently from dragging on purpose. Pasting is an explicit action, so a conflict is refused with the name of the event in the way, never quietly moved aside.',
+        ],
+      },
+      view: {
+        title: '④ Calendar, day / week view, stats',
+        lines: [
+          'Click a date in the calendar on the left to select it; Today jumps back to the current day. Days with entries carry a marker.',
+          'The timeline has Day and Week tabs at its top right. The week view is seven columns you can scroll sideways, with the time column pinned on the left.',
+          'The current book decides where the week starts, and the week header, the weekly stats window and the week number all follow that rule.',
+          'The stats panel at the bottom left switches between day / week / month / year scopes (week by default) and rolls its window with the selected date: category share, per-event totals, daily and weekly minutes, and a ranking table.',
+          'The time range at the top of the timeline changes the viewport only, never the data: hide the night hours and not one slot disappears.',
+        ],
+      },
+      book: {
+        title: '⑤ EventBooks, templates, export and import',
+        lines: [
+          'In the 🗂 menu you can switch books, create one, open book settings, export this book, or delete it. Deleting takes its events, templates and history with it and cannot be undone.',
+          'The data and backup group exports every book or just this one, and imports a file. Import always adds new EventBooks and never overwrites anything, so importing is safe.',
+          'Moving to another computer, browser or a fresh system install means one thing: export in the old browser, import in the new one. The server holds no second copy to pull.',
+          'Templates belong to the current book and can be sorted by name, category or last edit; picking one fills in the name and category when you create an event.',
+        ],
+      },
+      backup: {
+        title: '⑥ History and backups',
+        lines: [
+          'While you keep editing a version is stored every 15 minutes, one more is taken at startup, and you can archive manually from the history panel any time. Content identical to the previous version is not stored twice.',
+          'View this version is a read-only replay: a red banner appears and every write is blocked. Restore this version replaces the current content and cannot itself be undone, but the app first stores what you had, so you can always come back to now.',
+          'The snapshot chain only appends. Old versions roll off by tier (keep everything recent, the earliest of each day, the earliest of each month, 500 versions at most), while manual, import and pre-restore snapshots are protected and never removed.',
+          'Folder mirroring (Chrome / Edge, File System Access API) writes a JSON copy of every snapshot into a folder you pick. It is write-only: disconnecting deletes nothing on disk, and choosing a new folder backfills the whole chain there.',
+          'The auto mirror interval (1 / 5 / 10 / 15 / 30 / 60 minutes, 10 by default) only throttles how often the latest copy is rewritten on this device; the 15 minute snapshot cadence stays as it is.',
+        ],
+      },
+      privacy: {
+        title: '⑦ Where data lives and the privacy boundary',
+        lines: [
+          'Your data is in browser IndexedDB, in a database named event-logger with four stores: books, data, snapshots and meta. It is not on a server, not in a URL and not in a request body.',
+          'The page makes no third-party requests: no analytics, no CDN, no external fonts or images. Every asset is same-origin.',
+          'These really do destroy your log: clearing browser data, uninstalling the browser, closing an incognito window, and browsers evicting storage when the disk gets tight.',
+          'So keep at least one of the two durable routes: export every book to a JSON file, or mirror into a folder of your own (external drive, sync folder, NAS).',
+          'CDN edge nodes still record standard access logs (IP, user agent, the static path requested). No user data on the server means your content, not zero logs.',
+        ],
+      },
+      faq: {
+        title: '⑧ Questions people ask',
+        lines: [
+          'Why is it empty on another device? There is no sync, so the events live only in the browser that recorded them. Export there, import here.',
+          'Why is the template button greyed out? You are replaying a historical version, or this book is being edited in another tab and this page turned read-only. Exit the replay, or press Continue editing here in the banner.',
+          'Does it work on a phone? You can install it as a PWA and use it offline, but iOS Safari has no folder mirroring, so exporting is your only backup route and mobile storage is easier for the system to clean.',
+          'Can several people collaborate, or can it save to the server? No. This is a single-user tool and that boundary is deliberate: the whole site is read-only on the network.',
+          'Are there keyboard shortcuts? Only Escape: it closes dialogs, dropdown menus and the right-click menu. Everything else is mouse and right-click.',
+        ],
+      },
+    },
+  },
 };
