@@ -20,7 +20,7 @@
 | Pages 默认域名 | https://daily-event-logger.pages.dev | 与正式域名是**同一份产物**，已逐字节比对 |
 | 托管方式 | Cloudflare Pages，Direct Upload（纯静态） | 项目名 `daily-event-logger` |
 | 当前线上产物 | deployment `88d8109982f8f02952ddf22b4f7d386d32b1b769`（Direct Upload 以提交 SHA 作部署 id），来自 commit `88d8109` | 2026-10-01T13:27:40Z 上线（首条 `8abb842e` 仍永久可访问） |
-| 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；最近一次 run `36868663133` 三 job 全绿 |
+| 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；最近一次 run `36882901568`（`d2f5420`）三 job 全绿 |
 | 上线开关 | 仓库变量 `DEPLOY_ENABLED = true` | 改成 `false` 即停止自动上线 |
 | 域名 | Cloudflare Registrar 注册，`.com` | 2026-10-01 注册，2027-10-01 到期，**默认自动续费** |
 | 仓库 | https://github.com/microsheen/event-logger （公开，MIT） | 从 GitHub Enterprise 迁出，历史压成一条初始提交后再无敏感 blob |
@@ -330,7 +330,7 @@ https://rdap.org/domain/daily-event-logger.com
 
 | 资源 | apex `daily-event-logger.com` | `www` | `pages.dev` |
 | --- | --- | --- | --- |
-| `/`（index.html） | 200 / 1904 B（默认请求头）· 2271 B（浏览器式请求头，见 §8.4） | 同 apex | 200 / 1904 B（两种请求头都一样） |
+| `/`（index.html） | 200 / 1904 B（两种请求头都一样；2026-10-01 之前浏览器式请求头是 2271 B，见 §8.4） | 同 apex | 200 / 1904 B（两种请求头都一样） |
 | `/sw.js` | 200 / 2318 B | 相同 | 相同 |
 | `/manifest.webmanifest` | 200 / 651 B | 相同 | 相同 |
 | `/robots.txt` | 200 / 94 B | 相同 | 相同 |
@@ -423,6 +423,12 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
      Pages 部署才消失」，本例不成立。教训：**先复验，再决定要不要发空提交**，别白跑一轮 CI。
   - 15:04Z 复验：三 host 带浏览器式请求头取 `/` 全部回到 **1904 B / 1802 字符**，`data-cf-beacon`、`cloudflareinsights.com`、
      `cdn-cgi` 全无，9 项安全头原样。与本机 `dist/index.html` 只差 asset 文件名的 hash（跨环境不稳定，见 §13 那条 14:12）。
+  - **15:20Z 再复验一次「新部署会不会把注入带回来」**（`d2f5420` 的 CI 于 15:18:01 发出 deployment
+    `27ce420b`，job 收尾 15:18:04）：三 host 带浏览器式请求头取 `/` 仍是 **1904 B**，`data-cf-beacon` /
+    `cloudflareinsights.com` / `cdn-cgi` 全无，**HTML 里的第三方 URL 数为 0**，CSP 与 9 项安全头原样；
+    线上 smoke 在 HEAD 的分离 worktree 里跑，构建号自报 `d2f5420f-20261001151631`（证明测的就是这次部署），
+    18 步 196 条断言、0 红、全程 33 个请求方法分布 `{"GET":33}`。结论：**关掉不需要靠部署生效，部署也不会把它加回来**
+    ——「注入发生在部署时」这条理论在本例双向都不成立。
 - **怎么确认真的关掉**：带浏览器式请求头再取一次 `/`，`data-cf-beacon` 应当消失、字节数回到 **1904**（与本机产物只差一个
   asset hash）；再 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.pages.dev`，应 18 步全绿（apex 若被公司
   网关拦，见 §9 的绕法）。**2026-10-01 15:06Z 已按此验过：196 条断言、0 红。**
@@ -448,12 +454,18 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
 
 1. 本机 `curl.exe` 会报 schannel `CRYPT_E_REVOCATION_OFFLINE`（吊销列表取不到），而 node `fetch` 正常。
    **验证一律用 node**，别在 curl 上浪费时间。
-2. 本机对 `github.com` 的 DNS 其实被网关改写过（解析到 `20.27.177.113` 这类网关地址，而不是 GitHub 真实 IP），
-   所以 TCP 443 时通时不通。表现就是 `git push` 偶发 `Failed to connect to github.com port 443`。
-   **先分清报错类型**：`refusing to allow an OAuth App...` 是权限问题（见 §10），
-   `Failed to connect` 是网络抖动，重试即可，不要去改凭证。13:38–13:44 又抓到一次样本：连续 4 次
-   `Failed to connect` / `Connection was reset`，第 5 次才通；同期 `api.github.com` 全程可用
-   （`gh run view` 一切正常）。所以换 shell、换 SSH、重设凭证都不解决问题，只有重试解决。
+2. `git push` 偶发 `Failed to connect to github.com port 443`。**根因不是 GitHub，也不是「只能重试」，是 git 不走
+   这台机器的代理**：`github.com` 的 DNS 被网关改写成 `20.27.177.113` 这类网关地址，直连它的 443 时通时不通
+   （15:13Z 与 15:15Z 两次 push 都报这个错；15:19Z 再用 `Test-NetConnection github.com -Port 443` 测又 3/3 通）。
+   同期浏览器和 `Invoke-WebRequest https://github.com` 一直是通的、`api.github.com` 也全程可用
+   （`gh run view` 一切正常）——原因是系统 PAC（`AutoConfigURL=http://127.0.0.1:9000/localproxy-*.pac`）
+   兜底 `return "PROXY 127.0.0.1:9000"`，而 **git 从不读 PAC，只会直连**。所以「网页能开、git 连不上」并不矛盾。
+   - **确定性绕法（比盲重试快得多）**：`git -c http.proxy=http://127.0.0.1:9000 push origin master`。
+     15:16Z 用这条一次就通（`aa45a1c..d2f5420`）。**写成一次性 `-c` 参数，别 `git config --global http.proxy`
+     固化**：那个本地代理是公司机器上的进程，换网络或它没起来时，固化会把本来能直连的 push 全钉死。
+   - **先分清报错类型**（这条不变）：`refusing to allow an OAuth App...` 是权限问题（见 §10）；
+     `Failed to connect` 是网络/代理问题，不要去改凭证。13:38–13:44 那次连续 4 次失败、第 5 次才通，
+     当时按「抖动」记的，现在看同属这条——直接加 `-c http.proxy=` 就不必重试 5 遍。
 3. `--url=` 打远程站点会暴露 smoke 脚本自己的两处抖动（本地秒开永远撞不上，本轮已修在
    `scripts/e2e-smoke.mjs`）：① 定位助手是 `Page.addScriptToEvaluateOnNewDocument` 注入的，`document-start` 就装好，
    那时 `document.body` 还不存在，第一处 `document.body.innerText` 直接抛 null，整步白屏诊断也跟着废掉；
@@ -616,6 +628,10 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 15:03 | ✅ §8.4 结案：在控制台 **Delete** 掉 Web Analytics 站点属性 | 该账号的 `Advanced Options` 里根本没有 Automatic setup 下拉框，只有 Rules 的 Pro 升级推销 + 红色 Delete。**删完注入当场就停，没有重发部署** |
 | 15:04 | 三 host 带浏览器式请求头复验：全部 1904 B / 1802 字符 | `data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无；与本机 `dist/index.html` 只差一处 asset 文件名 hash（`index-BobZR8tk` 本机旧构建 vs `index-D_bhO3R_` 线上，长度相同所以都是 1904 B）；9 项安全头原样 |
 | 15:05 → 15:06 | 线上 smoke **首次 18 步全绿**：196 条断言、0 红 | apex 那次仍被 Zscaler 拦在第 1 步（`C03 …` + 两条 403），改打 `pages.dev` 就通了（见 §9 新增绕法）。`data-build="aa45a1ce-20261001142651"` 证明测的正是 `de6257b3`；「零第三方」「全程零跨域」「全程零非 GET（33 个请求全是 GET）」「零 CSP 违规」全部转绿 |
+| 15:13 → 15:15 | `d2f5420` 的 push 直连失败 2 次 | 都报 `Failed to connect to github.com port 443`；当时仍按「网关抖动、重试即可」（§9 第 2 条旧口径）处理 |
+| 15:16 | ✅ 改用 `git -c http.proxy=http://127.0.0.1:9000 push` **一次就通**（`aa45a1c..d2f5420`） | 找到真因：系统 PAC 兜底走 `PROXY 127.0.0.1:9000`，而 git 不读 PAC。§9 第 2 条据此重写；15:19Z 复测直连又 3/3 通，说明重试确实也能通，只是慢 |
+| 15:16:14 → 15:18:04 | run `36882901568`（`d2f5420`，纯文档）三 job success | checks 15:16:14→15:16:38、smoke 15:16:40→15:17:30、publish 15:17:35→15:18:04，deployment `27ce420b`；只动 DEPLOYMENT.md，产物内容不变 |
+| 15:20 → 15:21 | ✅ 复验「新部署不会把 beacon 带回来」+ 线上 smoke 再全绿 | 三 host 1904 B / 零 `data-cf-beacon` / HTML 第三方 URL 数 0 / CSP 与 9 项安全头原样；分离 worktree 里跑 `--url=…pages.dev`，构建号 `d2f5420f-20261001151631`、18 步 196 条断言 0 红、33 个请求全 GET |
 
 ---
 
