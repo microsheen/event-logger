@@ -60,7 +60,11 @@ const templateInfoStyle = {
   background: 'var(--color-accent-light)', fontSize: '13px',
   color: 'var(--color-accent)', marginBottom: '16px',
 };
-const sortRowStyle = { display: 'flex', justifyContent: 'flex-end', marginTop: '6px' };
+const labelRowStyle = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  flexWrap: 'wrap', gap: '8px', marginBottom: '6px',
+};
+const inlineLabelStyle = { ...labelStyle, marginBottom: 0 };
 const conflictWarningStyle = {
   padding: '10px 14px', borderRadius: 'var(--radius)',
   background: 'var(--color-danger-light)', fontSize: '13px',
@@ -171,24 +175,25 @@ export default function EventDialog({ mode, initialData, templates, events, date
 
         {mode === 'create' && templates.length > 0 && (
           <div style={fieldStyle}>
-            <label style={labelStyle}>{tr('dialog.fromHistory')}</label>
+            <div style={labelRowStyle}>
+              <label style={inlineLabelStyle}>{tr('dialog.fromHistory')}</label>
+              {templates.length > 1 && <TemplateSortControl />}
+            </div>
             <select style={selectStyle} onChange={e => handleTemplateSelect(e.target.value)} defaultValue="">
               <option value="">-- {tr('dialog.selectTemplate')} --</option>
               {sortedTemplates.map(t => (
                 <option key={t.id} value={t.id}>{t.name} ({tr('category.' + t.category)})</option>
               ))}
             </select>
-            {templates.length > 1 && (
-              <div style={sortRowStyle}>
-                <TemplateSortControl />
-              </div>
-            )}
           </div>
         )}
 
         {mode === 'edit' && (
           <div style={fieldStyle}>
-            <label style={labelStyle}>{tr('dialog.linkedTemplate')}</label>
+            <div style={labelRowStyle}>
+              <label style={inlineLabelStyle}>{tr('dialog.linkedTemplate')}</label>
+              {templates.length > 1 && <TemplateSortControl />}
+            </div>
             <select
               style={selectStyle}
               value={templateId || ''}
@@ -199,11 +204,6 @@ export default function EventDialog({ mode, initialData, templates, events, date
                 <option key={t.id} value={t.id}>{t.name} ({tr('category.' + t.category)})</option>
               ))}
             </select>
-            {templates.length > 1 && (
-              <div style={sortRowStyle}>
-                <TemplateSortControl />
-              </div>
-            )}
           </div>
         )}
 
