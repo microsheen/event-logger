@@ -1,4 +1,4 @@
-# Event Logger
+# Daily Event Logger
 
 **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja-JP.md)
 

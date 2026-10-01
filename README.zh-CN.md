@@ -1,4 +1,4 @@
-# 每日事件记录器（Event Logger）
+# 每日事件记录器（Daily Event Logger）
 
 [English](README.md) · **简体中文** · [日本語](README.ja-JP.md)
 

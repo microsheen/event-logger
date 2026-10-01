@@ -1,4 +1,4 @@
-# Event Logger 设计文档
+# Daily Event Logger 设计文档
 
 > 本文档描述系统的**设计意图与不变量**，不是 API 手册。改代码前先读 §3（数据模型）、§4（分层）、§11（不变量清单）。
 > 最近更新：2026-09-24
@@ -416,7 +416,7 @@ npm run check             # 串起下面 9 项，任一失败退出码 1
 npm run csp:check         # index.html 内联脚本的 sha256 是否与 public/_headers 一致
 npm run smoke             # 无头 Chrome 端到端 17 步（详见 README）
 npm run icons             # 从 favicon.svg 生成 4 档 PWA 图标
-npm run deploy            # build → csp:check → wrangler pages deploy dist --project-name=event-logger
+npm run deploy            # build → csp:check → wrangler pages deploy dist --project-name=daily-event-logger
 ```
 
 检查脚本的性质是 **lint 级 CI**：进程退出码 1 即失败，输出中文问题清单。断言刻意做成确定性的（如 `createdAt` 断言写成 `===` 到预计算 ISO 串，不依赖宿主机 locale/时区），否则"检查脚本"会变成新的抖动来源。
