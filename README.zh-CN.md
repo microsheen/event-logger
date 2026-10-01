@@ -14,7 +14,7 @@
 
 **[https://daily-event-logger.com](https://daily-event-logger.com)** 是公开 demo —— 就是本机 `npm run build` 产出的那堆静态文件本身，服务器侧只有静态文件托管，没有任何后端在跑。
 
-- 它和本机 `npm run build` 的产物同源：CSP 来自 `public/_headers`，service worker 与 manifest 一起发布，所以 demo 也能安装成 PWA。每次发布前由 `npm run csp:check` 把关内联脚本哈希；`npm run smoke --url=https://daily-event-logger.com` 把那 18 步从本机改成打在这个站点上 —— 发布之后就该这样复核一次。
+- 它和本机 `npm run build` 的产物同源：CSP 来自 `public/_headers`，service worker 与 manifest 一起发布，所以 demo 也能安装成 PWA。每次发布前由 `npm run csp:check` 把关内联脚本哈希；`npm run smoke -- --url=https://daily-event-logger.com` 把那 18 步从本机改成打在这个站点上 —— 发布之后就该这样复核一次。中间那个 `--` 不是装饰：省掉它 npm 会把 `--url` 当成自己的配置吃掉、根本不传给脚本，于是测试静默地又跑在本机产物上。
 - **没有账号、没有登录、没有同步。** 服务器侧不存任何数据，所以换一台设备或换一个浏览器打开，看到的是一个空应用：事件只存在于当初记录它的那个浏览器的 IndexedDB 里，要搬走只能导出再导入。
 - 顶栏的 **❓ 使用帮助** 打开一份纯只读的内置指南，八个小节依次是：第一次打开、记一件事、改时间 / 挪位置 / 复制粘贴、日历与日周视图和统计、EventBook 与模板和导入导出、历史版本与备份、数据在哪与隐私边界、常见问题。文案与界面共用同一套中 / 英 / 日字典，所以它跟着当前这本书的语言切换；它一个字都不写，因而在回放历史版本时也不会被置灰。
 - 下面「⚠️ 会丢数据的情况」在 demo 上同样成立 —— 在那里清了浏览器数据就没有任何一份可以拉回来。「强烈建议：镜像到一个本地备份文件夹」在 demo 上照样可用：它写的是**你正在浏览的这台设备**上的文件夹（需要 Chrome / Edge 的 File System Access API），不会写到服务器。
@@ -97,7 +97,7 @@ npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 
 `npm run smoke` 覆盖的正是上面三条承诺：零本书的浏览器自动补出「默认」簿、改名仍只有一本 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 顶栏瘦身复核 → 历史面板镜像块与内置使用帮助（点顶栏入口打开、正文跟随界面语言、`Esc` 关闭）→ 收尾复核全程零非 GET 请求。
 
-选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=https://daily-event-logger.com` 把测试直接打在线上 demo 上（也可以是任何已部署站点）、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）、`--lang=zh-CN` 给 Chrome 换一个浏览器语言，配 `--stop-at=2` 就能单独重跑「零本书自举」那两步，验证自动建出的默认籍书名与周开始日跟着浏览器语言（默认 / Default / デフォルト）。
+选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=https://daily-event-logger.com` 把测试直接打在线上 demo 上（也可以是任何已部署站点）、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）、`--lang=zh-CN` 给 Chrome 换一个浏览器语言，配 `--stop-at=2` 就能单独重跑「零本书自举」那两步，验证自动建出的默认籍书名与周开始日跟着浏览器语言（默认 / Default / デフォルト）。这些都是脚本自己的参数，所以经 npm 调用必须带 `--` 分隔（`npm run smoke -- --url=…`），或者直接 `node scripts/e2e-smoke.mjs --url=…`。
 
 ---
 

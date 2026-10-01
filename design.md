@@ -427,7 +427,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 
 - 界面文案一律从 `src/i18n/locales/en.js` import 后来定位，不硬编码字面量；
 - 组件上的 `data-*`（`data-slot` / `data-header-date` / `data-snap` / `data-action`）是**测试锚点**，改 UI 时不能顺手删；
-- `--stop-at=N` 只跑前 N 步（单步调试用），`--applog` 失败时打印页面日志，`--slow=MS` 给人眼看，`--url=` 可打已部署的站点（例如 `--url=https://daily-event-logger.com` 直接复核线上），`--no-sandbox` 只在显式传入时给 Chrome 追加 `--no-sandbox --disable-dev-shm-usage`（Linux 容器里起不来才用，不传时本机行为一字不变），`--lang=zh-CN` 给 Chrome 换浏览器语言、配 `--stop-at=2` 就能重跑自举那一步，真验「中文浏览器首屏建出『默认』簿 + 周一起始」（第 3 步起用的是英文字典的文案，换语言的跑法只到第 2 步）；
+- `--stop-at=N` 只跑前 N 步（单步调试用），`--applog` 失败时打印页面日志，`--slow=MS` 给人眼看，`--url=` 可打已部署的站点（例如 `--url=https://daily-event-logger.com` 直接复核线上；经 npm 调用必须写成 `npm run smoke -- --url=…`，少了 `--` 时 npm 把这个参数吞掉、脚本照样跑本机产物，所以更稳的是直接 `node scripts/e2e-smoke.mjs --url=…`），`--no-sandbox` 只在显式传入时给 Chrome 追加 `--no-sandbox --disable-dev-shm-usage`（Linux 容器里起不来才用，不传时本机行为一字不变），`--lang=zh-CN` 给 Chrome 换浏览器语言、配 `--stop-at=2` 就能重跑自举那一步，真验「中文浏览器首屏建出『默认』簿 + 周一起始」（第 3 步起用的是英文字典的文案，换语言的跑法只到第 2 步）；
 - `--url=` 打已部署站点时，脚本自己也得扛得住慢网络：定位助手在 `document-start` 就注入，那时 `document.body` 还不存在；而它找不到元素时返回的是 `{ err }`（对象，真值）。所以等待条件统一经 `ready()` 把 `{ err }` 判成「还没好」，启动诊断更要等 `body` 与 React 真挂载之后再打。本地秒开永远撞不上这两条，远程一撞就是一个 null 求值异常 + 一句「找不到点击目标」。
 - 它自带随机端口的静态服务器，不碰本地 3002/3003。
 
