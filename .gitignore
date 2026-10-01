@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Written by scripts/e2e-smoke.mjs on every run
+smoke-report.json
+
 # Data and logs
 data.json
 server.log

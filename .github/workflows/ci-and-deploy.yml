@@ -32,6 +32,9 @@ env:
   NODE_VERSION: "24"
   PROJECT_NAME: daily-event-logger
   PRODUCTION_BRANCH: master
+  # Custom domain is already bound to the Pages project (how to bind it: see design.md).
+  # Used only to print where a release actually went.
+  SITE_URL: "https://daily-event-logger.com"
 
 jobs:
   checks:
@@ -156,11 +159,11 @@ jobs:
       - name: Where to look
         run: |
           {
-            echo "Production: https://$PROJECT_NAME.pages.dev"
-            echo
+            echo "Site: $SITE_URL"
+            echo "Pages default host: https://$PROJECT_NAME.pages.dev"
             echo "This deployment: https://$GITHUB_SHA.$PROJECT_NAME.pages.dev"
             echo
-            echo "Dashboard: https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/pages/view/$PROJECT_NAME"
+            echo "Custom domains: https://dash.cloudflare.com/$CLOUDFLARE_ACCOUNT_ID/pages/view/$PROJECT_NAME/domains"
           } >> "$GITHUB_STEP_SUMMARY"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

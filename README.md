@@ -2,9 +2,21 @@
 
 **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja-JP.md)
 
+**Demo site: [daily-event-logger.com](https://daily-event-logger.com)** — no account, no sync; the demo is the whole app and it stores nothing on the server.
+
 A **single-user** daily time tracker: each day is cut into 10-minute slots, drag to record "what did what when", then read statistics and trends per category (Work / Life / Study).
 
 It is now a PWA that can be published to the public internet — and **the server stores no user data at all**: the URL is openly reachable, the page code is downloadable by anyone, but every event you record stays in your own browser.
+
+---
+
+## Demo site
+
+**[https://daily-event-logger.com](https://daily-event-logger.com)** is the public demo — the exact same output `npm run build` produces, served as static files. Nothing but static file hosting runs behind it.
+
+- It is served as the same artifact a local `npm run build` produces: the CSP comes from `public/_headers`, and the service worker and manifest ship with it, so the demo installs as a PWA. `npm run csp:check` gates the inline-script hash before every publish, and `npm run smoke --url=https://daily-event-logger.com` points the same 17 steps at the deployed site instead of a local build — which is what to run after publishing.
+- **No account, no login, no sync.** Nothing is stored server-side, so opening the demo on a second device or a second browser shows an empty app: the events live in the IndexedDB of the browser where they were recorded, and export → import is the only way to move them.
+- The "⚠️ Situations where you can lose data" list applies to the demo in full — clear browser data there and nothing can hand it back. The optional backup-folder mirror still works on the demo: it writes into a folder **on the device you are browsing from** (Chrome / Edge File System Access API), never to the server.
 
 ---
 
@@ -84,7 +96,7 @@ npm run csp:check # whether the inline script hash matches public/_headers
 
 `npm run smoke` covers exactly the three promises above: create a book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → the slim-header check (export/import now live in the book menu) → a final check that the whole session made zero non-GET requests.
 
-Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=` target a deployed site, `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses).
+Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=https://daily-event-logger.com` run it against the live demo (or any deployed site), `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses).
 
 ---
 

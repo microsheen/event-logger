@@ -2,9 +2,21 @@
 
 [English](README.md) · **简体中文** · [日本語](README.ja-JP.md)
 
+**在线 Demo：[daily-event-logger.com](https://daily-event-logger.com)** —— 没有账号、没有同步；demo 就是完整应用，服务器上不存任何东西。
+
 一个**单人自用**的每日时间记录工具：一天切成 10 分钟一格，拖拽记录"什么时间做了什么"，再按类别（工作 / 生活 / 学习）看统计与趋势。
 
 现在它是一个可以直接发到公网的 PWA —— 而且**服务器上不存放任何用户数据**：网址可以公开访问，页面代码谁都能下载，但你记下的每一个事件只待在你自己的浏览器里。
+
+---
+
+## 在线 Demo
+
+**[https://daily-event-logger.com](https://daily-event-logger.com)** 是公开 demo —— 就是本机 `npm run build` 产出的那堆静态文件本身，服务器侧只有静态文件托管，没有任何后端在跑。
+
+- 它和本机 `npm run build` 的产物同源：CSP 来自 `public/_headers`，service worker 与 manifest 一起发布，所以 demo 也能安装成 PWA。每次发布前由 `npm run csp:check` 把关内联脚本哈希；`npm run smoke --url=https://daily-event-logger.com` 把那 17 步从本机改成打在这个站点上 —— 发布之后就该这样复核一次。
+- **没有账号、没有登录、没有同步。** 服务器侧不存任何数据，所以换一台设备或换一个浏览器打开，看到的是一个空应用：事件只存在于当初记录它的那个浏览器的 IndexedDB 里，要搬走只能导出再导入。
+- 下面「⚠️ 会丢数据的情况」在 demo 上同样成立 —— 在那里清了浏览器数据就没有任何一份可以拉回来。「可选：镜像到一个本地备份文件夹」在 demo 上照样可用：它写的是**你正在浏览的这台设备**上的文件夹（需要 Chrome / Edge 的 File System Access API），不会写到服务器。
 
 ---
 
@@ -84,7 +96,7 @@ npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 
 `npm run smoke` 覆盖的正是上面三条承诺：建书 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 顶栏瘦身复核 → 收尾复核全程零非 GET 请求。
 
-选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=` 打已部署的站点、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）。
+选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=https://daily-event-logger.com` 把测试直接打在线上 demo 上（也可以是任何已部署站点）、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）。
 
 ---
 
