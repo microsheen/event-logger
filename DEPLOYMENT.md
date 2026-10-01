@@ -579,13 +579,17 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 13:04:50 → 13:07:05 | run `36866143472` 三 job 全 success | checks+build 13:05:23 → 浏览器 smoke 13:06:02 → publish 13:07:05；线上三 host 同时换上新 bundle `index-DE2uwppR.js`（311555 B，逐字节相同） |
 | 13:11 | 第一次从本机打线上 smoke | 9 条红：7 条是 §8.4 那个 zone 自动注入的 beacon，2 条是 §9.3 那两个脚本抖动（本轮已修） |
 | 13:17 | 本机 `npm run smoke` 18 步全绿 | 随机端口服务器不属于任何 zone，没人给它注入 beacon，所以线上那 7 条红在这里根本不复现 |
-| 13:22 / 13:24 | 两次远程 smoke 都停在校验页 | §9.3 那台企业网关对刚注册域名时通时不通；本轮拿到的是拦截页正文（新诊断打印得很清楚），不是应用失败 |
+| 13:22 / 13:24 | 两次远程 smoke 都停在校验页 | §9.3 那台企业网关对刚注册的域名时通时不通，两次都停在第 1 步，拿到的是 Zscaler `C03 Are you sure...` 拦截页正文（新诊断打印能直接说出「页面被网关改了」），不是应用失败；同一份代码 13:17 本机 18 步全绿 |
 | 13:26:13 → 13:27:44 | run `36868663133`（`88d8109`）三 job success | 只动测试脚本与 design.md，bundle 内容不变（仍 `index-DE2uwppR.js` / 311555 B），照发一次部署 |
 | 13:34:36 → 13:36:21 | run `36869691598`（`297ce3f`）三 job success | 文档口径修正：`npm run smoke -- --url=`（少了 `--` 时 npm 吞参数、实测打到本机产物）；DEPLOYMENT.md 按自家脱敏标准入库 |
 | 13:37 | design.md 文件索引与代码对齐（`data-*` 锚点其实在 `HelpDialog.jsx`，`Workspace.jsx` 一个都没有）+ 补上本段 | 纯文档，产物不变 |
 | 13:38 → 13:44 | `25459eb` 的 push 重试 5 次才通 | §9 第 2 条那个网关抖动，本轮再次命中，重试即可 |
 | 13:44:14 → 13:46:10 | run `36870897249`（`25459eb`）三 job success | checks 13:44:48 → smoke 13:45:35 → publish 13:46:10；线上仍是 `index-DE2uwppR.js` / 311555 B |
-| 13:22 / 13:24 | 修完再复跑两次线上 | 两次都停在第 1 步：Zscaler `C03 Are you sure...` 拦截页（§9 的时通时不通）。同一份代码本机 18 步全绿（13:17），诊断信息现在能直接说出「页面被网关改了」 |
+| 13:47:39 → 13:49:12 | run `36871326101`（`a7ec7b9`）三 job success | 只动本文档，产物不变，线上仍是 `index-DE2uwppR.js` / 311555 B |
+| 14:10:29 → 14:12:22 | `71b3ef6` push 一次成功 → run `36874299459` 三 job success | checks 14:10:46→14:11:12、smoke 14:11:14→14:11:48、publish 14:11:51→14:12:22；deployment `f174b586` |
+| 14:12 | 线上换上新 bundle `index-BXH9qyKy.js` / 316083 B | apex / www / pages.dev 三 host 同一份；三语新文案（`这是一个记录你的工作` / `Before you start logging` / `ローカルフォルダーにミラー`）与 `data-help-top`、`data-help-warn-title` 两个新锚点都在产物里 |
+| 14:12 | 别拿 bundle 文件名比本机与 CI | 同一份源码本机 build 出 `index-D7hNtOyy.js` / 316084 B：index chunk 里内嵌懒加载 `StatsPanel-*.js` 的哈希，跨环境不稳定。要比的是内容（grep 文案与 `data-*` 锚点），不是文件名 |
+| 14:14 → 14:15 | 线上 smoke：第 17 步 7 条新断言全过，10 条红全是同一个根因 | 开头两段介绍、备份提醒排在目录之前、en/zh 逐字等于字典——都在真实线上产物上通过；10 条红全部指向 §8.4 那个按 zone 自动注入的 `beacon.min.js` 被自家 CSP 拦下（零第三方 / 零跨域 / 零 JS 异常），与本轮改动无关，关掉自动注入并重发一次部署才会消失 |
 
 ---
 
