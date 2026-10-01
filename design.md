@@ -428,6 +428,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 - 界面文案一律从 `src/i18n/locales/en.js` import 后来定位，不硬编码字面量；
 - 组件上的 `data-*`（`data-slot` / `data-header-date` / `data-snap` / `data-action`）是**测试锚点**，改 UI 时不能顺手删；
 - `--stop-at=N` 只跑前 N 步（单步调试用），`--applog` 失败时打印页面日志，`--slow=MS` 给人眼看，`--url=` 可打已部署的站点（例如 `--url=https://daily-event-logger.com` 直接复核线上），`--no-sandbox` 只在显式传入时给 Chrome 追加 `--no-sandbox --disable-dev-shm-usage`（Linux 容器里起不来才用，不传时本机行为一字不变），`--lang=zh-CN` 给 Chrome 换浏览器语言、配 `--stop-at=2` 就能重跑自举那一步，真验「中文浏览器首屏建出『默认』簿 + 周一起始」（第 3 步起用的是英文字典的文案，换语言的跑法只到第 2 步）；
+- `--url=` 打已部署站点时，脚本自己也得扛得住慢网络：定位助手在 `document-start` 就注入，那时 `document.body` 还不存在；而它找不到元素时返回的是 `{ err }`（对象，真值）。所以等待条件统一经 `ready()` 把 `{ err }` 判成「还没好」，启动诊断更要等 `body` 与 React 真挂载之后再打。本地秒开永远撞不上这两条，远程一撞就是一个 null 求值异常 + 一句「找不到点击目标」。
 - 它自带随机端口的静态服务器，不碰本地 3002/3003。
 
 运维脚本（本地常驻才需要）：
@@ -440,7 +441,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 - ① 在 Pages 项目 **Custom domains** 里加域名。API 是 `POST /accounts/{account_id}/pages/projects/{project_name}/domains`，body 字段名是 `name`；网上流传的 `rel` 写法会稳定报 `8000015 The domain you have entered contains an invalid TLD.`，跟 TLD 毫无关系（传 `rel` 等于传了个空域名，所以连 `example.com` 都报同一个错）。想手动重跑校验：`PATCH .../domains/{domain_name}`，无 body。
 - ② zone 里必须有 proxied CNAME：`@` 和 `www` → `daily-event-logger.pages.dev`。Pages **不会**替你建这两条记录（只有控制台的域名向导会），所以走 API 时 token 需要 `Zone / DNS / Read + Edit`；缺了就永远停在 `pending` + `CNAME record not set`。
 
-只注册域名不绑定 = NXDOMAIN；绑定与否都不影响默认域名 `daily-event-logger.pages.dev`，两者是同一份构建产物（已逐字节比对：HTML / `sw.js` / `manifest.webmanifest` / `assets/*` / 安全头全等）。
+只注册域名不绑定 = NXDOMAIN；绑定与否都不影响默认域名 `daily-event-logger.pages.dev`，两者是同一份构建产物（已逐字节比对：HTML / `sw.js` / `manifest.webmanifest` / `assets/*` / 安全头全等）。 这条比对口径要补一句：**HTML 只在同一请求头下才相等**。带浏览器式请求头（`Accept: text/html` + `Sec-Fetch-Mode: navigate`）取 apex 与 `www`，Cloudflare 会按 zone 上的 Web Analytics 自动安装往 `</body>` 前插一行 `static.cloudflareinsights.com/beacon.min.js`（实测 2271 B vs `pages.dev` 的 1904 B）；`node` / `curl` 的默认请求头不触发注入，于是「逐字节全等」和「被注入」能同时为真。注入的这个第三方脚本被本页 CSP 当场拦下执行，用户数据仍然一个字都不出去，但「零第三方请求」这条承诺只有**关掉 zone 的自动安装**才算真守住（运维步骤见 `DEPLOYMENT.md` §8.4）。
 
 `www` 与 apex 是**两个不同 origin**，IndexedDB 互相看不见，同一个用户换了主机名就会看到一个空应用。要收口就在 zone 加一条 Redirect Rule：`(http.host eq "www.daily-event-logger.com")` → 301，目标用 `concat("https://daily-event-logger.com", http.request.uri.path, ...)` 保留 path 与 query。控制台 Rules → Redirect Rules 点两下即可；走 API 需要 rulesets 权限（当前 token 403）。它是纯静态站点：换设备 / 换浏览器打开就是空应用，服务器侧没有任何可拉回的数据副本，「强烈建议：镜像到本地备份文件夹」写的也是浏览者本机的文件夹，与托管在哪无关。
 

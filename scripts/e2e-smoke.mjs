@@ -292,6 +292,10 @@ const BOOTSTRAP = `window.__smk = (function () {
 })();`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 定位助手找不到目标时返回 { err: ... }，而对象本身是真值。等待条件必须把它判成「还没好」：
+// 打远程站点时渲染赶在求值后面，「等按钮出现」的 until 会在第一次求值就直接放行，
+// 下一步立刻抛「找不到点击目标」。本地秒开时永远撞不上，所以这个坑一直没暴露。
+const ready = (v) => (v && typeof v === 'object' && v.err ? null : v);
 function makeHelpers(cdp) {
   const slow = num('slow', 0);
   const expr = async (expression, awaitIt = true) => {
@@ -307,7 +311,7 @@ function makeHelpers(cdp) {
     const deadline = Date.now() + (timeoutMs || 15000);
     let last = null;
     while (Date.now() < deadline) {
-      try { const v = await fn(); last = v; if (v) return v; } catch (err) { last = err.message; }
+      try { const v = ready(await fn()); last = v; if (v) return v; } catch (err) { last = err.message; }
       await sleep(120);
     }
     throw new Error('超时等待「' + label + '」，最后值 ' + JSON.stringify(last));
@@ -411,7 +415,7 @@ async function until(fn, label, timeoutMs) {
   const deadline = Date.now() + (timeoutMs || 20000);
   let last = null;
   while (Date.now() < deadline) {
-    try { const v = await fn(); if (v) return v; last = v; } catch (err) { last = err.message; }
+    try { const v = ready(await fn()); if (v) return v; last = v; } catch (err) { last = err.message; }
     await sleep(150);
   }
   throw new Error('等不到「' + label + '」，最后值 ' + JSON.stringify(last));
@@ -522,7 +526,9 @@ async function stableGrid(label, expectHeads, timeoutMs) {
     return g;
   }, timeoutMs || 25000);
 }
-await until(async () => await H.expr('!!window.__smk'), '页面装上定位助手', 20000);
+// 助手是在 document-start 注入的，那时 document.body 还不存在。等到有 body 再往下走，
+// 否则远程站点的第一个 innerText 求值会撞在 null 上，整步抛「Cannot read properties of null」。
+await until(async () => await H.expr('!!window.__smk && !!document.body'), '页面装上定位助手并有 body', 20000);
 const fatal = () => bag.fatal();
 console.log('目标：' + targetUrl + '（同源 ' + ORIGIN + '）');
 const BOOK = 'Smoke Book A';
@@ -534,7 +540,7 @@ const S2 = 9;
 
 // ── 启动诊断：白屏时先告诉你为什么白屏 ──
 async function bootDiagnostics() {
-  const info = await H.expr('JSON.stringify({ build: document.documentElement.getAttribute("data-build") || "", title: document.title, lang: document.documentElement.lang, rootChildren: document.getElementById("root") ? document.getElementById("root").children.length : -1, nodes: document.getElementsByTagName("*").length, body: document.body.innerText.replace(/\\s+/g, " ").slice(0, 160), innerHTML: document.getElementById("root") ? document.getElementById("root").innerHTML.slice(0, 160) : "" })');
+  const info = await H.expr('JSON.stringify({ build: document.documentElement.getAttribute("data-build") || "", title: document.title, lang: document.documentElement.lang, rootChildren: document.getElementById("root") ? document.getElementById("root").children.length : -1, nodes: document.getElementsByTagName("*").length, body: (document.body ? document.body.innerText : "").replace(/\\s+/g, " ").slice(0, 160), innerHTML: document.getElementById("root") ? document.getElementById("root").innerHTML.slice(0, 160) : "" })');
   const parsed = JSON.parse(info);
   console.log('    文档：title=' + JSON.stringify(parsed.title) + ' lang=' + parsed.lang + ' 元素数=' + parsed.nodes + ' 构建号=' + parsed.build + ' root子节点=' + parsed.rootChildren);
   console.log('    root.innerHTML: ' + JSON.stringify(parsed.innerHTML));
@@ -551,9 +557,22 @@ async function bootDiagnostics() {
   return parsed;
 }
 
+// 远程首屏要先下载几百 kB 的 bundle，React 挂载必然晚于第一次求值。先安静等挂载，再打完整诊断；
+// 等不到也照样打，白屏时这一步得用人话说清为什么白，而不是丢一个 null 求值异常。
+async function waitMounted(timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 25000);
+  for (;;) {
+    const n = await H.expr('(document.getElementById("root") ? document.getElementById("root").children.length : 0)');
+    if (n > 0) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(200);
+  }
+}
+
 await step('页面真的启动了（React 挂载成功）', async () => {
+  const mounted = await waitMounted(25000);
   const parsed = await bootDiagnostics();
-  assert('#root 里有渲染出来的节点', parsed.rootChildren > 0, 'rootChildren=' + parsed.rootChildren);
+  assert('#root 里有渲染出来的节点', mounted && parsed.rootChildren > 0, 'rootChildren=' + parsed.rootChildren);
   assert('没有致命异常/CSP 拦截', fatal().length === 0, fatal().slice(0, 5).join(' | '));
   // 构建号是「旧壳 vs 新构建」唯一的肉眼证据：SW 预缓存 shell 时页面跑的是上一次 build 的 JS，
   // 只看界面分不清「没修好」和「没加载到新构建」。格式定义在 vite.config.js 的 resolveBuildId。
