@@ -30,7 +30,7 @@ concurrency:
 
 env:
   NODE_VERSION: "24"
-  PROJECT_NAME: event-logger
+  PROJECT_NAME: daily-event-logger
   PRODUCTION_BRANCH: master
 
 jobs:
