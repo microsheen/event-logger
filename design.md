@@ -310,7 +310,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 - `WeekStartPicker.jsx` 把抽象的 `weekStartsOn` 变成**预览**：选中任一日起点，立刻显示这本书的周范围与周号（`getWeekRange` / `weekNumber`），让 §3.3 的口径在改之前就被看见。
 - `HistoryPanel.jsx` 是需求 ③ 的界面：一行一个历史版本（时间取 `snapshots` 索引，不含 payload），带 reason 中文标签、体积合计（`snapshotStats`）、配额占比（`estimateUsage`）、「立即存档」，以及"查看此版本 / 恢复到此版本"。点击某行 = 进出回放；恢复是**行内两段式确认**（`restoreId` 命中才出现"确认恢复"），避免整页 `confirm` 打断。工具栏里的**镜像块**（容器 `data-mirror-state` = `on` / `permission` / `off` / `unsupported`，控件 `data-action="mirror-pick|mirror-grant|mirror-reselect|mirror-forget|mirror-interval|mirror-open|mirror-view-refresh|mirror-view-close|mirror-resync"`）是 §5 那条镜像链的唯一入口，但**正文只有一行状态**：落盘路径挂在标题的 `title`（`data-hint="path"`）上，每个按钮到底做了什么写在各自的 `title` 里，`on` 态额外给一行「自动镜像」节奏下拉（`meta.mirrorIntervalMinutes`，默认 10 分钟）。选择 / 授权之后立刻 `onMirrorAll()` 补齐整条链；`unsupported` 时一个按钮都不给，只让用户走导出。`on` 态那个「📂 查看镜像文件夹」（`mirror-open`，带 `aria-expanded`）展开 `MirrorFolderView.jsx`（容器 `data-mirror-view`）：只读列举磁盘上的文件名，底部挂着折叠起来的 `mirror-resync`；收起即整个卸载，关掉历史面板时展开状态也归零。工具栏第一行是「💾 立即存档」+「⬇️ 导出全部」（`data-action="export-all"`）：后者**与镜像能力无关**，是不支持 File System Access 的浏览器（Firefox / Safari）的兜底通路，放在镜像块容器之外，与菜单里的「导出全部簿」共用同一个 `handleExportAll`。
 - **零本书自举**：`useBooks` 挂载时若 `listBooks()` 返回空（全新浏览器 / 清了站点数据 / 换设备三种场景），就在同一个 effect 里建一本默认簿再把界面画出来，界面上从来没有"引导页"这个状态，`loading` 也一路盖到创建完成，不闪空屏。默认簿由 `storage/books.js` 的 `makeDefaultBook()` 给出：id 固定 `default-book`、书名取 `book.defaultName`（`默认` / `Default` / `デフォルト`），其余默认值全部复用 `makeBook` 那一条实现，所以 `settings.language` = 当下语言、`weekStartsOn` = `LANG_WEEK_START[lang]`（zh/ja=1、en=0）、时间轴 `0-144`、`statsScope='week'`。三处细节是刻意的：**语言取 `resolveInitialLang(null)`**（localStorage 缓存 > 浏览器语言，与 `I18nProvider` 首帧同源，不会出现「书名 `Default`、界面中文」的错位）；**id 固定**是多标签页并发冷启动的答案——两个页签 `put` 的是同一个 key，库里永远只有一本，`data` 行也按同一个 id 附着，不会分裂成两本默认簿；**书名在创建瞬间写死**，之后改这本书的语言不会把名字换掉。自举同时写一条空的 `data` 行（这一写 `rev` 从 0 变 1；首屏挂载后 `useEvents`/`useTemplates` 各自把空数组重新 setState 一次，500ms 防抖到期会合并成一次「空内容重写」把 `rev` 顶到 2，这是每本书都一样的既有行为，所以测试只断言 `rev >= 1` 而不断言写次数）。删除最后一本书的护栏（`books.length <= 1` 时「🗑 删除此簿」置灰）保持不变，因此不会陷入"删完又立刻冒出一本默认簿"的怪圈。
-- `HelpDialog.jsx` 是顶栏「❓ 使用帮助」打开的**纯只读**使用指南：八个固定小节（第一次打开 / 记一件事 / 改时间与复制粘贴 / 日历·日周视图·统计 / EventBook 与导入导出 / 历史版本与备份 / 数据在哪与隐私边界 / 常见问题）+ 一行目录 chip 跳节 + `Escape` 或 ✕ 关闭，内容全部来自字典，组件里没有本地 state，所以切换界面语言时正文立刻跟着换。小节顺序住在组件的 `SECTION_ORDER` 常量里（`sections` 是无序对象，字典比不了顺序）；正文是每节一个字符串数组，渲染成 `· ` 开头的列表。它不开 `guardWrite`、不碰任何 store，因此 `Workspace` 只用一个 `showHelp` state 挂着它。
+- `HelpDialog.jsx` 是顶栏「❓ 使用帮助」打开的**纯只读**使用指南：开头两段「这是个什么工具」（`help.about`）+ 一句「数据只在本机的代价」导语（`help.intro`）+ 一块红色备份提醒 callout（`help.warnLabel` / `help.warn`，把「开启 📁 镜像到本地文件夹」提到用户第一眼就看到的位置，iOS Safari 之类的兜底是给「⬇️ 导出全部」），再往下才是八个固定小节（第一次打开 / 记一件事 / 改时间与复制粘贴 / 日历·日周视图·统计 / EventBook 与导入导出 / 历史版本与备份 / 数据在哪与隐私边界 / 常见问题）+ 一行目录 chip 跳节 + `Escape` 或 ✕ 关闭，内容全部来自字典，组件里没有本地 state，所以切换界面语言时正文（含开头两块）立刻跟着换。开头三块包在 `data-help-top` 容器里并限高 `38vh`：窗口矮时这一块自己滚，不把八个小节挤没。小节顺序住在组件的 `SECTION_ORDER` 常量里（`sections` 是无序对象，字典比不了顺序）；正文是每节一个字符串数组，渲染成 `· ` 开头的列表。它不开 `guardWrite`、不碰任何 store，因此 `Workspace` 只用一个 `showHelp` state 挂着它。
 - 四个组件上的 `data-*`（`data-action` / `data-snap` / `data-mirror-state` / `data-help-*`）是 `npm run smoke` 的定位锚点，**改 UI 时不要顺手删**。
 
 ---
@@ -496,7 +496,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I32 | 自动镜像节奏是**设备级设置**（`meta.mirrorIntervalMinutes`），只影响 `latest.json` 的写频，**绝不**改变 §5 那条 15 分钟快照节奏，也不影响 `snapshots/*.json` 随每次存档落盘；档位表固定 1/5/10/15/30/60、默认 10，脏值（0 / 负数 / 空 / 文本 / 超范围）一律归到最近档位；`syncLatest` 读 `intervalRef` 而不是闭包 state，改节奏必须 `resetLatestStamps()` 清窗口，「立即存档」与「重新镜像全部版本」走 `{ force: true }` 不受节流限制。镜像块的详细说明一律待在 tooltip 里，正文只留一行状态 | `folderBackup.normalizeMirrorInterval` / `getMirrorInterval` / `setMirrorInterval` + `useBackupFolder.setIntervalMin`；`book:check` §10（默认 10、脏值归档、窗口内跳过且磁盘文件没变、窗口外重写、force 穿透、清窗口后立刻可写）；`smoke` 第 16 步断言正文不含 `ROOT_DIR_NAME` 与版本链说明、标题 `title` 含三个路径常量、每个 `[data-action]` 都带 `title`、节奏下拉只在 `on` 态出现 |
 | I33 | 镜像块正文只放「这个状态现在需要什么」：低频的整链重推必须待在「查看镜像文件夹」面板里，不占正文；「查看」是**只读列举** —— 只用 `getDirectoryHandle(create: false)` / `dir.entries()`，零创建、零写入、零打开文件内容，读到的东西只显示、绝不回填应用状态或当恢复来源；网页也唤不起资源管理器，因此**绝不**为了"打开文件夹"新增后端端点（那会同时破掉第 12 节的"零非 GET 请求 / 用户内容不进 URL / 服务器不存数据"） | `MirrorFolderView.jsx` + `folderBackup.listMirrorTree`；`book:check` 第 11 节（列举前后磁盘文件树完全一致、零 `create:true`、零 `getFileHandle`、limit 截断与脏值回落、缺目录降级成"还没写过副本"、异常吞掉不抛）；`smoke` 第 16 步断言正文无 `mirror-resync` / 展开后才有 / 收起后再消失、`aria-expanded` 与文案同步、每个控件都有 `title`、已连接那一行不会自相矛盾地写"未连接"、伪造句柄 + 两次重载零 JS 异常 |
 | I34 | `listBooks()` 读到空目录就**必须在同一个挂载周期内自举**一本 `id=default-book` 的本地化默认簿（书名 `book.defaultName`、语言取 `resolveInitialLang(null)`），界面里不存在"首启引导"这一屏；自举用的 id 固定，因此两个标签页并发冷启动也只会 `put` 同一行 | `useBooks.seedDefaultBook` + `storage/books.js` `makeDefaultBook`；`book:check` §4b（三语书名 / 非法或缺省语言回退 en / `weekStartsOn` / 时间轴 0-144 / `statsScope` / 同 `nowMs` 幂等）；`smoke` 第 2/3 步（首屏即周视图、IDB 里那本 `default-book` 的形状、改名后仍只有一本）与第 14 步（重载不再多出一本） |
-| I35 | 顶栏「❓ 使用帮助」是**只读内容入口**：`HelpDialog` 不经 `guardWrite`、不写任何 store，按钮**永不因 `locked` 置灰**（回放历史版本 / 他页正在编辑时照样能查说明）；八节正文只住在三份字典的 `help.sections`，顺序住在组件里 | `Header.jsx` 的帮助按钮不读 `locked`；`smoke` 第 17 步断言顶栏三个按钮、八节 + 八个目录 chip、标题与逐节正文等于字典、切 zh 后正文换语言、`Escape` 与 ✕ 都关得掉；三语齐平由 `i18n:check` 守（`help` 段 50 键 × 3，字典文案禁含字面 `{` `}`） |
+| I35 | 顶栏「❓ 使用帮助」是**只读内容入口**：`HelpDialog` 不经 `guardWrite`、不写任何 store，按钮**永不因 `locked` 置灰**（回放历史版本 / 他页正在编辑时照样能查说明）；开头两段工具介绍（`help.about`）与红色备份提醒（`help.warnLabel` / `help.warn`）也住字典、也在小节之前 | `Header.jsx` 的帮助按钮不读 `locked`；`smoke` 第 17 步断言顶栏三个按钮、八节 + 八个目录 chip、标题与逐节正文等于字典、开头介绍与备份提醒两段逐字等于字典且排在目录之前、切 zh 后正文换语言、`Escape` 与 ✕ 都关得掉；三语齐平由 `i18n:check` 守（`help` 段 55 键 × 3，字典文案禁含字面 `{` `}`） |
 
 ---
 
@@ -537,7 +537,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
   week:check / snapshot:check / book:check 三套新断言 + 18 步无头端到端 smoke
   发布路径：Cloudflare Pages（npm run deploy）；server.js 退化为"只发静态 + 只读 legacy 探测"
   顶栏 EventBook 切换与设置弹窗；历史面板 HistoryPanel；零本书时自举「默认」簿（首启引导页后来被它替掉）
-  顶栏「❓ 使用帮助」→ HelpDialog 只读内置指南（八节，三语文案住字典，不参与 locked 置灰）
+  顶栏「❓ 使用帮助」→ HelpDialog 只读内置指南（开头工具介绍 + 备份提醒 + 八节，三语文案住字典，不参与 locked 置灰）
 ```
 
 系统并非一次成型，而是围绕**四个早期锚点**长出来的：**slot 时间模型**、**纯函数业务层**、**单一 payload 文档**、**hooks 独占 I/O**。前两个从初版就成立；后两个在初版表现为"一个 `data.json` + 一个 `usePersistentData`"，本轮把它们换成了"IndexedDB 里 `data` store 的一行 + `useBookData`"——**换的只是存放处和搬运工，形状没变**，所以 i18n、排序引擎、缩放、剪贴板、跨日期拖动这些既有功能在迁移中一行业务规则都不用改。这也是"服务器零存储"能在一轮里做完的真正原因：需要重写的只有 I/O 边界那一层。
@@ -578,7 +578,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/components/Calendar.jsx` | 146 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
 | `src/components/TemplateManager.jsx` | 144 | 模板增删改 + 排序 |
 | `src/components/BookSettingsDialog.jsx` | 85 | 单本设置：书名、周开始日、语言、视口、统计档位 |
-| `src/components/HelpDialog.jsx` | 118 | 只读使用指南：八个小节 + 目录 chip + `Escape`，正文全在字典 `help.sections`（顺序在组件里）。smoke 第 17 步的定位锚点全在这个文件：`data-help-dialog` / `data-help-intro` / `data-help-nav-<key>`×8 / `data-help-scroll` / `data-help-section-<key>`×8 / `data-action="help-close"` |
+| `src/components/HelpDialog.jsx` | 146 | 只读使用指南：开头介绍 + 备份提醒 callout + 八个小节 + 目录 chip + `Escape`，正文全在字典（`help.about` / `help.intro` / `help.warnLabel` / `help.warn` / `help.sections`，顺序在组件里）。smoke 第 17 步的定位锚点全在这个文件：`data-help-dialog` / `data-help-top` / `data-help-about` / `data-help-intro` / `data-help-warn` + `data-help-warn-title` / `data-help-nav-<key>`×8 / `data-help-scroll` / `data-help-section-<key>`×8 / `data-action="help-close"` |
 | `src/components/ContextMenu.jsx` | 83 | 自研右键菜单（fixed 定位 + 视口内翻转 + 置灰项） |
 | `src/components/TemplateSortControl.jsx` | 45 | 排序分段控件（两个弹窗共用） |
 | `src/components/WeekStartPicker.jsx` | 37 | 周开始日选择器（同时预览"这本书的本周"范围，把设置变成看得见的东西） |
@@ -629,14 +629,14 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
 | `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
 | `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
-| `src/i18n/locales/{zh,en,ja}.js` | 315 × 3（260 键） | 三语文案，`zh` 为源语言 |
+| `src/i18n/locales/{zh,en,ja}.js` | 324 × 3（265 键，其中 `help` 段 55 键） | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
 ### `scripts/`（lint 级 CI）
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 1257 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗（顶栏入口 / 八节 / 目录跳节真的滚起来 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
+| `scripts/e2e-smoke.mjs` | 1291 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗（顶栏入口 / 开头两段工具介绍与红色备份提醒逐字等于字典且排在目录之前 / 八节 / 目录跳节真的滚起来 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
 | `scripts/check-book-store.mjs` | 455 | 设置守门、书名与文件名清洗、零本书自举的默认簿（三语书名 / 固定 id / 默认值与 `makeBook` 同源 / 非法语言回退 / 幂等）、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流、查看面板的只读列举（零创建零写入、截断与脏 limit、缺目录与异常降级） |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |

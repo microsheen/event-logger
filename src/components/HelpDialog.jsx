@@ -29,6 +29,21 @@ const introStyle = {
   padding: '0 24px 12px', fontSize: '12.5px', color: 'var(--color-text-secondary)',
   lineHeight: 1.7, flexShrink: 0,
 };
+// 开头三块：先讲「这是什么」，再讲「数据只在本机的代价 + 怎么兜住」。
+// 包一层并限高：窗口矮时这块自己滚，不把八个小节挤到看不见；正常高度下不会出第二条滚动条。
+const topStyle = { maxHeight: '38vh', overflowY: 'auto', flexShrink: 0 };
+const aboutStyle = {
+  padding: '14px 24px 0', fontSize: '13px', color: 'var(--color-text)',
+  lineHeight: 1.75, flexShrink: 0,
+};
+const aboutParaStyle = { margin: '0 0 8px' };
+const warnStyle = {
+  margin: '0 24px 12px', padding: '10px 12px', flexShrink: 0,
+  border: '1px solid var(--color-danger)', borderLeftWidth: '3px',
+  borderRadius: 'var(--radius)', background: 'var(--color-danger-light)',
+};
+const warnTitleStyle = { fontSize: '12.5px', fontWeight: 700, color: 'var(--color-danger)', marginBottom: '6px' };
+const warnParaStyle = { margin: '0 0 6px', fontSize: '12.5px', lineHeight: 1.65, color: 'var(--color-text)' };
 const navStyle = {
   display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center',
   padding: '10px 24px', borderTop: '1px solid var(--color-border)',
@@ -81,7 +96,20 @@ export default function HelpDialog({ open, onClose }) {
           <button style={closeBtnStyle} onClick={onClose} data-action="help-close"
             aria-label={tr('common.close')} title={tr('common.close')}>{'✕'}</button>
         </div>
-        <div style={introStyle} data-help-intro>{tr('help.intro')}</div>
+        <div style={topStyle} data-help-top>
+          <div style={aboutStyle} data-help-about>
+            {(tr('help.about') || []).map((para, i) => (
+              <p key={i} style={aboutParaStyle}>{para}</p>
+            ))}
+          </div>
+          <div style={introStyle} data-help-intro>{tr('help.intro')}</div>
+          <div style={warnStyle} data-help-warn>
+            <div style={warnTitleStyle} data-help-warn-title>{tr('help.warnLabel')}</div>
+            {(tr('help.warn') || []).map((para, i) => (
+              <p key={i} style={warnParaStyle}>{para}</p>
+            ))}
+          </div>
+        </div>
         <div style={navStyle}>
           <span style={navLabelStyle}>{tr('help.navLabel')}</span>
           {SECTION_ORDER.map((key) => (

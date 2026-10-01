@@ -230,7 +230,16 @@ export default {
     entry: '❓ Help',
     entryTip: 'How this site works: logging, editing times, backups, and where the data actually lives',
     title: '❓ Help',
+    about: [
+      'A small tool for logging your work, your life and your study. There is no shortage of software that does this, but it often feels like more than you actually want: really you just want a calendar notebook to write down what you did.',
+      'Two things set it apart. First, all of your data stays local, so you can put it to use yourself later. Second, the timeline cuts a day into 144 slots of 10 minutes, so an event can be as precise as you want.',
+    ],
     intro: 'Everything runs inside your browser: the data lives only in the IndexedDB of this device and the server stores none of it. This guide follows the interface language.',
+    warnLabel: '⚠️ Before you start logging, turn on 📁 Mirror to a local folder',
+    warn: [
+      'The price is this: clearing browser data, working in a private window, or switching device or browser can lose your entries for good — there is no second copy on a server to pull from.',
+      'So turn on 📁 Mirror to a local folder: pick one of your own folders inside 🕘 History, and from then on every saved version also writes a JSON copy there. Where mirroring is unavailable (iOS Safari, for example), press ⬇️ Export all regularly instead and keep the file — rely on at least one of the two.',
+    ],
     navLabel: 'Jump to',
     sections: {
       start: {

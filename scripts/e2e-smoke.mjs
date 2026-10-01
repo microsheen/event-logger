@@ -1155,7 +1155,7 @@ await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查�
   await closeHistory();
 });
 
-await step('使用帮助：顶栏入口 / 打开 / 目录跳节 / 跟随语言 / Esc 关闭', async () => {
+await step('使用帮助：顶栏入口 / 开头介绍与备份提醒 / 目录跳节 / 跟随语言 / Esc 关闭', async () => {
   const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   // 面板里的结构探针：一次求值读全，重渲染不会让两次读取落在不同帧上
   const helpProbe = () => H.expr(`(() => {
@@ -1176,6 +1176,16 @@ await step('使用帮助：顶栏入口 / 打开 / 目录跳节 / 跟随语言 /
       navTitles: Array.prototype.map.call(navs, (e) => norm(e.textContent)),
       bullets: p.querySelectorAll('li').length,
       intro: norm((p.querySelector('[data-help-intro]') || {}).textContent),
+      aboutParas: p.querySelectorAll('[data-help-about] p').length,
+      about: Array.prototype.map.call(p.querySelectorAll('[data-help-about] p'), (e) => norm(e.textContent)).join(' '),
+      warnTitle: norm((p.querySelector('[data-help-warn-title]') || {}).textContent),
+      warnParas: p.querySelectorAll('[data-help-warn] p').length,
+      warn: Array.prototype.map.call(p.querySelectorAll('[data-help-warn] p'), (e) => norm(e.textContent)).join(' '),
+      warnBeforeNav: (() => {
+        const w = p.querySelector('[data-help-warn]');
+        const n = p.querySelector('[data-help-nav]');
+        return !!(w && n) && !!(w.compareDocumentPosition(n) & 4);
+      })(),
       closeBtn: !!p.querySelector('[data-action=\\'help-close\\']'),
       scrolled: scroller ? Math.round(scroller.scrollTop) : -1,
       chars: p.innerText.replace(/\\s+/g, ' ').length,
@@ -1198,7 +1208,10 @@ await step('使用帮助：顶栏入口 / 打开 / 目录跳节 / 跟随语言 /
     h1.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => en.help.sections[k].title).join(' || '),
     h1.sectionTitles.join(' | '));
   assert('每节都有正文（合计 ' + h1.bullets + ' 条），且成段不是空壳', h1.bullets >= 24 && h1.chars >= 1200, h1.bullets + ' 条 / ' + h1.chars + ' 字');
+  assert('开头工具介绍来自字典（en 两段）', h1.aboutParas === 2 && h1.about === norm(en.help.about.join(' ')), h1.about.slice(0, 60));
   assert('导语来自字典（en）', h1.intro === norm(en.help.intro), h1.intro.slice(0, 60));
+  assert('开头备份提醒来自字典（en 两段）', h1.warnTitle === norm(en.help.warnLabel) && h1.warnParas === 2 && h1.warn === norm(en.help.warn.join(' ')), h1.warnTitle + ' / ' + h1.warn.slice(0, 60));
+  assert('备份提醒排在目录和小节之前', h1.warnBeforeNav === true, String(h1.warnBeforeNav));
   assert('关闭按钮存在', h1.closeBtn === true);
 
   // 目录跳节：点最后一节的 chip，面板内部必须真的滚动起来
@@ -1219,7 +1232,9 @@ await step('使用帮助：顶栏入口 / 打开 / 目录跳节 / 跟随语言 /
   assert('中文八节标题逐一对上中文字典',
     h2.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => zh.help.sections[k].title).join(' || '),
     h2.sectionTitles.join(' | '));
+  assert('开头工具介绍来自字典（zh 两段）', h2.aboutParas === 2 && h2.about === norm(zh.help.about.join(' ')), h2.about.slice(0, 60));
   assert('导语来自字典（zh）', h2.intro === norm(zh.help.intro), h2.intro.slice(0, 60));
+  assert('开头备份提醒来自字典（zh 两段）', h2.warnTitle === norm(zh.help.warnLabel) && h2.warnParas === 2 && h2.warn === norm(zh.help.warn.join(' ')), h2.warnTitle + ' / ' + h2.warn.slice(0, 60));
   assert('换语言不换结构与锚点', h2.sections === 8 && h2.navs === 8 && h2.sectionKeys === h1.sectionKeys, h2.sectionKeys);
   assert('正文条数与语言无关', h2.bullets === h1.bullets, h2.bullets + ' vs ' + h1.bullets);
 
