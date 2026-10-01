@@ -103,24 +103,6 @@ Design intent and the list of invariants live in `design.md` (currently Chinese 
 
 ---
 
-## Repository lineage (why the history restarts)
-
-This repository's history **starts over** at `0dedf3e` (2026-09-24, "local-first event logger"). It is not a continuation of the earlier line of this project, and it never will be.
-
-| Date | What happened |
-|---|---|
-| 2026-08-16 | The project began as a server-backed app — events stored in a `data.json` on disk — in a private repository on an internal GitHub Enterprise instance. 8 commits over five weeks. |
-| 2026-09-24 | The local-first rewrite: the server stores nothing, all data lives in IndexedDB, and EventBooks, the PWA shell and the snapshot chain arrived. The history was **re-rooted** here instead of being carried over. |
-| 2026-09-27 | The old repository was retired and archived read-only. Its last functional commit is `3607327`, followed by `2728e25`, a retirement notice pointing here. |
-
-The two lines have **no common ancestor** — `git merge-base` between them is empty. Do not merge, rebase or cherry-pick across them, and do not read "the other repo has commits this one lacks" as a failed sync: it is a different tree.
-
-Why `server.js` still exists: it is the read-only probe that lets a pre-rewrite `data.json` be imported once. It serves static files and writes nothing.
-
-The old repository's URL is deliberately **not** published here, because that instance is internal. Its docs and history stay readable inside its own frozen line (`git show 3607327:README.md`, `git show 3607327:design.md`).
-
----
-
 ## License
 
 MIT, see [`LICENSE`](LICENSE).
