@@ -439,7 +439,9 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
 2. 本机对 `github.com` 的 DNS 其实被网关改写过（解析到 `20.27.177.113` 这类网关地址，而不是 GitHub 真实 IP），
    所以 TCP 443 时通时不通。表现就是 `git push` 偶发 `Failed to connect to github.com port 443`。
    **先分清报错类型**：`refusing to allow an OAuth App...` 是权限问题（见 §10），
-   `Failed to connect` 是网络抖动，重试即可，不要去改凭证。
+   `Failed to connect` 是网络抖动，重试即可，不要去改凭证。13:38–13:44 又抓到一次样本：连续 4 次
+   `Failed to connect` / `Connection was reset`，第 5 次才通；同期 `api.github.com` 全程可用
+   （`gh run view` 一切正常）。所以换 shell、换 SSH、重设凭证都不解决问题，只有重试解决。
 3. `--url=` 打远程站点会暴露 smoke 脚本自己的两处抖动（本地秒开永远撞不上，本轮已修在
    `scripts/e2e-smoke.mjs`）：① 定位助手是 `Page.addScriptToEvaluateOnNewDocument` 注入的，`document-start` 就装好，
    那时 `document.body` 还不存在，第一处 `document.body.innerText` 直接抛 null，整步白屏诊断也跟着废掉；
@@ -581,6 +583,8 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 13:26:13 → 13:27:44 | run `36868663133`（`88d8109`）三 job success | 只动测试脚本与 design.md，bundle 内容不变（仍 `index-DE2uwppR.js` / 311555 B），照发一次部署 |
 | 13:34:36 → 13:36:21 | run `36869691598`（`297ce3f`）三 job success | 文档口径修正：`npm run smoke -- --url=`（少了 `--` 时 npm 吞参数、实测打到本机产物）；DEPLOYMENT.md 按自家脱敏标准入库 |
 | 13:37 | design.md 文件索引与代码对齐（`data-*` 锚点其实在 `HelpDialog.jsx`，`Workspace.jsx` 一个都没有）+ 补上本段 | 纯文档，产物不变 |
+| 13:38 → 13:44 | `25459eb` 的 push 重试 5 次才通 | §9 第 2 条那个网关抖动，本轮再次命中，重试即可 |
+| 13:44:14 → 13:46:10 | run `36870897249`（`25459eb`）三 job success | checks 13:44:48 → smoke 13:45:35 → publish 13:46:10；线上仍是 `index-DE2uwppR.js` / 311555 B |
 | 13:22 / 13:24 | 修完再复跑两次线上 | 两次都停在第 1 步：Zscaler `C03 Are you sure...` 拦截页（§9 的时通时不通）。同一份代码本机 18 步全绿（13:17），诊断信息现在能直接说出「页面被网关改了」 |
 
 ---
