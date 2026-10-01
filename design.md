@@ -15,7 +15,7 @@
 |---|---|
 | 录入成本接近零 | 时间轴拖拽建事件 + 模板一键回填 |
 | 公网可访问，但服务器不知道你是谁 | 纯静态托管 + 全站无写接口；数据在浏览器 IndexedDB（§2、§5） |
-| 数据完全自主 | 导出/导入即迁移，可选把每份历史版本镜像到本地文件夹 |
+| 数据完全自主 | 导出/导入即迁移，强烈建议把每份历史版本镜像到本地文件夹 |
 | 一屏之内并存多套"周口径" | EventBook：每本书自带 `weekStartsOn` 与 `language`（§3.3） |
 | 改错了能回退 | 追加式快照链 + 只读回放 + 不可逆恢复（恢复前先存当前）（§5） |
 | 业务规则可测试 | 业务全部下沉到不依赖 React 的纯函数层，`scripts/check-*.mjs` 在 Node 里直接跑 |
@@ -35,7 +35,7 @@
 | 持久化 | **浏览器 IndexedDB**（库 `event-logger`，版本 1，4 个 store） | 唯一真源，见 `src/storage/idb.js` |
 | 历史版本 | 同库 `snapshots` store 的追加式快照链 | 分层淘汰 + 保护位，`src/storage/snapshots.js` |
 | 跨标签页 | `BroadcastChannel` 单写者锁 | `src/storage/bus.js` |
-| 可选镜像 | File System Access API → `EventLogger Backups/` | `src/storage/folderBackup.js`，只写不读（「查看文件夹」也只列文件名） |
+| 镜像文件夹（强烈建议） | File System Access API → `EventLogger Backups/` | `src/storage/folderBackup.js`，只写不读（「查看文件夹」也只列文件名） |
 | 离线 | `vite-plugin-pwa`（Workbox，`autoUpdate`，`injectRegister: 'script'`） | `injectRegister` 用 `inline` 会塞第二段内联脚本，CSP 不允许；每个构建带 `BUILD_ID`（`<html data-build>` + 设置对话框页脚），用来分清「旧壳」和「新构建」 |
 | 托管 | Cloudflare Pages（纯静态 + `public/_headers` 的 CSP），线上域名 `https://daily-event-logger.com` | `npm run deploy` |
 | 本地 | Express 4（`server.js`，34 行） | 只发静态文件 + 只读 `GET /api/legacy-data` |
@@ -45,7 +45,7 @@
  ├─ React UI ─► hooks（唯一 I/O 边界）─► src/storage/* ─► IndexedDB event-logger@1
  │                                                               ├─ books / data / snapshots / meta
  ├─ BroadcastChannel("event-logger:bus") ◄─► 同站其它标签页（单写者锁 + rev 失效通知）
- ├─ File System Access API ─► EventLogger Backups/<书名>/…（可选镜像）
+ ├─ File System Access API ─► EventLogger Backups/<书名>/…（强烈建议的镜像文件夹）
  └─ Service Worker ─► 预缓存 shell，断网可开
 ──────────────────────────────────────────────────────────────────────────────────
 Cloudflare Pages：只有 dist/ 里的静态字节。没有数据库、没有会话、没有任何上传口。
@@ -242,7 +242,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 - **恢复某版本 = 不可逆**，因此恢复本身也是"追加两份"：`restoreToSnapshot` 先 `force` 写一份 `pre-restore`（`note` = 目标 id，受保护）→ UI 应用旧 payload → `finishRestore` 再 `force` 写一份 `restored-from`。用户点恢复前必须看到 `history.restoreSafety` 那句"不可逆，但当前内容会先存成一份新版本"。
 - 结论：链上任何时刻都留有"恢复前的你"，所以"不可逆"不会变成"回不去"。
 
-**可选的文件夹镜像**（`folderBackup.js` + `useBackupFolder` + 历史面板里的镜像块）：`EventLogger Backups/manifest.json` 记书名↔目录与每份快照指纹，`<书名>/latest.json` 与 `<书名>/snapshots/<ISO>.json` 是可直接阅读的副本。刻意**只写不读**——它不参与应用状态，删了不影响运行，但足以在"浏览器被清"之后手动搬回来。唯一的读是「查看镜像文件夹」那张只读清单（`listMirrorTree`，§6.6）：只列文件名，结果只用于显示，既不回填应用状态，也不当恢复来源。
+**强烈建议的文件夹镜像**（`folderBackup.js` + `useBackupFolder` + 历史面板里的镜像块）：`EventLogger Backups/manifest.json` 记书名↔目录与每份快照指纹，`<书名>/latest.json` 与 `<书名>/snapshots/<ISO>.json` 是可直接阅读的副本。刻意**只写不读**——它不参与应用状态，删了不影响运行，但足以在"浏览器被清"之后手动搬回来。唯一的读是「查看镜像文件夹」那张只读清单（`listMirrorTree`，§6.6）：只列文件名，结果只用于显示，既不回填应用状态，也不当恢复来源。
 
 - **查看与修改都在历史面板里**（§6.6）：标题行一个状态 pill（已镜像 / 需要授权 / 未连接 / 不支持）+ **一行正文**（连到哪个文件夹 · 上次镜像时间），下面只有该状态真正需要的那几个按钮（未连接 / 需要授权 → 选择、重新授权；已连接 → 📂 查看镜像文件夹、📁 更换、断开）。**落盘路径、版本链、每个按钮到底做了什么，一律收在 tooltip 里**——这一栏是状态灯，不是说明书。已连接时多一行「自动镜像 · 每 N 分钟」下拉（默认 10 分钟，档位 1/5/10/15/30/60，存 `meta.mirrorIntervalMinutes`，只对当前设备有效）。句柄仍然只存在 IndexedDB `meta.backupDirectory` 里，面板只是它的一张脸。
 - **低频动作不摆在正文里**：「🔄 重新镜像全部版本」收在「查看镜像文件夹」面板底部（`MirrorFolderView.jsx`），正文不给它位置——选完文件夹、重新授权、每次存档这三条路径本来就自动补齐，手动整链重推是逃生口不是常用按钮。还有一条不占 UI 的等价逃生口：📁 更换文件夹 → 选同一个文件夹，同样触发一次完整回补。
@@ -441,7 +441,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 
 只注册域名不绑定 = NXDOMAIN；绑定与否都不影响默认域名 `daily-event-logger.pages.dev`，两者是同一份构建产物（已逐字节比对：HTML / `sw.js` / `manifest.webmanifest` / `assets/*` / 安全头全等）。
 
-`www` 与 apex 是**两个不同 origin**，IndexedDB 互相看不见，同一个用户换了主机名就会看到一个空应用。要收口就在 zone 加一条 Redirect Rule：`(http.host eq "www.daily-event-logger.com")` → 301，目标用 `concat("https://daily-event-logger.com", http.request.uri.path, ...)` 保留 path 与 query。控制台 Rules → Redirect Rules 点两下即可；走 API 需要 rulesets 权限（当前 token 403）。它是纯静态站点：换设备 / 换浏览器打开就是空应用，服务器侧没有任何可拉回的数据副本，「可选：镜像到本地备份文件夹」写的也是浏览者本机的文件夹，与托管在哪无关。
+`www` 与 apex 是**两个不同 origin**，IndexedDB 互相看不见，同一个用户换了主机名就会看到一个空应用。要收口就在 zone 加一条 Redirect Rule：`(http.host eq "www.daily-event-logger.com")` → 301，目标用 `concat("https://daily-event-logger.com", http.request.uri.path, ...)` 保留 path 与 query。控制台 Rules → Redirect Rules 点两下即可；走 API 需要 rulesets 权限（当前 token 403）。它是纯静态站点：换设备 / 换浏览器打开就是空应用，服务器侧没有任何可拉回的数据副本，「强烈建议：镜像到本地备份文件夹」写的也是浏览者本机的文件夹，与托管在哪无关。
 
 发布到公网有两条路，两条都要过同一条校验链（`build` → `csp:check`）：
 
@@ -500,7 +500,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 
 | 风险 | 位置 | 说明 / 触发条件 | 现有缓解 |
 |---|---|---|---|
-| **数据只活在单一浏览器** | 整体 | 清浏览器数据、换设备、换浏览器 = 数据"看不见"，因为服务器上没有副本可比对。这是需求 ① 的直接代价，不是缺陷 | 导出/导入文件；可选镜像文件夹；三条恢复入口（§5） |
+| **数据只活在单一浏览器** | 整体 | 清浏览器数据、换设备、换浏览器 = 数据"看不见"，因为服务器上没有副本可比对。这是需求 ① 的直接代价，不是缺陷 | 导出/导入文件；镜像文件夹（强烈建议）；三条恢复入口（§5） |
 | 浏览器存储被驱逐 | `storage/idb.js:130` | 未授予持久化时，浏览器可在磁盘紧张时整库丢弃。**iOS/Safari 没有 `navigator.storage.persist()`**，申请必然返回 false；桌面 Chrome 也要站点达到阈值才批 | `useBookData` 载入后调一次 `requestPersistence()`；镜像文件夹；smoke 第 14 步只断言"申请这一句不炸"，不假装它一定成功 |
 | 快照存整包而非增量 | `snapshots.js` `MAX_SNAPSHOTS=500` | 每个版本都是完整 payload。当前数据量下 500 份约几 MB，若事件量再涨十倍会先撞配额 | hash 去重（内容没变不产生版本）+ 分层淘汰（§5）；写失败经 `storageError` → toast（`App.jsx:75`），不静默 |
 | `useEvents` / `useTemplates` 只在挂载时接收一次初值 | `hooks/useEvents.js:9`、`useTemplates.js:10` | 第二次换 payload 会被 `initialized` 忽略。**它依赖"换书必然重挂载"**：`Workspace key={book.id}` 与 `bookData.loading` 渲染门必须**成对存在**，拆掉任一门就会把旧书内容留在新书界面上 | I24 + smoke 第 13 步 |
@@ -528,7 +528,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
   快照链：追加式历史版本 + 指纹去重 + 分层保留（7 天全留 / 30 天取日 / 365 天取月 / 上限 500 / 保护位）
   回放与不可逆恢复：只读预览整站 + pre-restore 与 restored-from 成对留档
   跨标签页单写者锁（BroadcastChannel + rev）：把"整包写无乐观锁"从"已知不修"升级为"结构上不存在"
-  可选镜像文件夹（File System Access API，只写不读）
+  镜像文件夹（File System Access API，只写不读）—— 强烈建议开启
   PWA 离线 + 最紧 CSP（全同源 + 内联脚本 sha256）+ csp:check / imports:check
   week:check / snapshot:check / book:check 三套新断言 + 17 步无头端到端 smoke
   发布路径：Cloudflare Pages（npm run deploy）；server.js 退化为"只发静态 + 只读 legacy 探测"

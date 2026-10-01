@@ -16,7 +16,7 @@ It is now a PWA that can be published to the public internet — and **the serve
 
 - It is served as the same artifact a local `npm run build` produces: the CSP comes from `public/_headers`, and the service worker and manifest ship with it, so the demo installs as a PWA. `npm run csp:check` gates the inline-script hash before every publish, and `npm run smoke --url=https://daily-event-logger.com` points the same 17 steps at the deployed site instead of a local build — which is what to run after publishing.
 - **No account, no login, no sync.** Nothing is stored server-side, so opening the demo on a second device or a second browser shows an empty app: the events live in the IndexedDB of the browser where they were recorded, and export → import is the only way to move them.
-- The "⚠️ Situations where you can lose data" list applies to the demo in full — clear browser data there and nothing can hand it back. The optional backup-folder mirror still works on the demo: it writes into a folder **on the device you are browsing from** (Chrome / Edge File System Access API), never to the server.
+- The "⚠️ Situations where you can lose data" list applies to the demo in full — clear browser data there and nothing can hand it back. The backup-folder mirror still works on the demo (see below: strongly recommended, not optional): it writes into a folder **on the device you are browsing from** (Chrome / Edge File System Access API), never to the server.
 
 ---
 
@@ -63,7 +63,7 @@ A snapshot's `reason` is an enum: `interval` (the 15-minute cadence), `startup` 
 
 Eviction is tiered: keep everything within 7 days → for days 8–30 keep the earliest snapshot of each calendar day → for days 31–365 keep the earliest of each month → hard cap of 500 snapshots. The three reasons `manual` / `import` / `pre-restore` are **protected**; eviction never deletes them. If the fingerprint (canonical hash) is identical, no duplicate snapshot is stored.
 
-### Optional: mirror to a local backup folder
+### Strongly recommended: mirror to a local backup folder
 
 In the history panel you can pick a folder (needs the File System Access API in Chrome / Edge); after that every snapshot is also written out as a file. That panel keeps the mirror to a single status line (which folder, when it last synced) — where the files land on disk and what each button does live in tooltips. "🔄 Re-mirror every version" is no longer on that line: it sits at the bottom of the "📂 Open mirrored folder" panel, which lists the file names actually inside the folder (a web page cannot launch your file explorer, and names are all it reads). When it is connected you can also choose how often the live copy is rewritten: every 1, 5, 10, 15, 30 or 60 minutes, 10 by default (a per-device setting; "💾 Save now" and "Re-mirror every version" always write immediately, and version files still land with every snapshot).
 
@@ -81,7 +81,7 @@ That folder is yours (external drive, Sync service, NAS, anything), so "the brow
 - **Private windows** — gone the moment the window closes; when IndexedDB is entirely unavailable the UI says so plainly instead of pretending the save succeeded.
 - **Eviction under storage pressure** (especially iOS Safari / mobile) — the app requests `persisted` storage, but the browser decides.
 
-So: for long-lived data, rely on at least one of "export files" or "the mirror backup folder".
+So: for long-lived data, treat "the mirror backup folder" as strongly recommended rather than optional, and keep "export files" as the second copy.
 
 ---
 
