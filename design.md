@@ -568,7 +568,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/App.jsx` | 123 | 组装 hooks、按 `activeBook.settings.language` 套 `I18nProvider`、渲染门（不支持 IDB / 书目加载中（含自举默认簿）/ 本书数据加载中 / `Workspace key=id`），外加自举也失败时的错误屏 + 「重试」 |
 | `src/main.jsx` | 16 | 挂载点 + 把 `BUILD_ID` 写进 `<html data-build>` |
 | `src/buildInfo.js` | 4 | 构建号的唯一出口（`__BUILD_ID__` 由 vite `define` 替换，缺值时退成 `unknown`） |
-| `src/components/Workspace.jsx` | 393 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）+ 三个 `data-*` 测试锚点 |
+| `src/components/Workspace.jsx` | 393 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）。它自己没有任何 `data-*`，测试锚点一律住在被测的面板组件里 |
 | `src/components/Header.jsx` | 192 | EventBook 下拉（切换 / 新建 / 簿设置 / 导出此簿 / 数据与备份：导出全部簿 + 导入为新簿 / 删除此簿）+ 常驻的隐藏 file input、语言、历史、模板、使用帮助 |
 | `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
 | `src/components/EventDialog.jsx` | 271 | 事件新建/编辑、冲突提示、模板选择与热度、存为模板 |
@@ -578,7 +578,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/components/Calendar.jsx` | 146 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
 | `src/components/TemplateManager.jsx` | 144 | 模板增删改 + 排序 |
 | `src/components/BookSettingsDialog.jsx` | 85 | 单本设置：书名、周开始日、语言、视口、统计档位 |
-| `src/components/HelpDialog.jsx` | 118 | 只读使用指南：八个小节 + 目录 chip + `Escape`，正文全在字典 `help.sections`（顺序在组件里） |
+| `src/components/HelpDialog.jsx` | 118 | 只读使用指南：八个小节 + 目录 chip + `Escape`，正文全在字典 `help.sections`（顺序在组件里）。smoke 第 17 步的定位锚点全在这个文件：`data-help-dialog` / `data-help-intro` / `data-help-nav-<key>`×8 / `data-help-scroll` / `data-help-section-<key>`×8 / `data-action="help-close"` |
 | `src/components/ContextMenu.jsx` | 83 | 自研右键菜单（fixed 定位 + 视口内翻转 + 置灰项） |
 | `src/components/TemplateSortControl.jsx` | 45 | 排序分段控件（两个弹窗共用） |
 | `src/components/WeekStartPicker.jsx` | 37 | 周开始日选择器（同时预览"这本书的本周"范围，把设置变成看得见的东西） |
