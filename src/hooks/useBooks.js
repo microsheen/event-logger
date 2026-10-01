@@ -4,12 +4,13 @@ import {
   listBooks,
   saveBook,
   makeBook,
+  makeDefaultBook,
   normalizeSettings,
   deleteBook as deleteBookRow,
   writeLiveData,
 } from '../storage/books.js';
 import { listSnapshots, deleteSnapshots } from '../storage/snapshots.js';
-import { detectLang } from '../i18n/core.js';
+import { detectLang, resolveInitialLang } from '../i18n/core.js';
 
 const ACTIVE_KEY = 'event-logger:active-book';
 const SETTINGS_WRITE_MS = 400;
@@ -20,6 +21,18 @@ function readActiveId() {
 
 function writeActiveId(id) {
   try { if (id) window.localStorage.setItem(ACTIVE_KEY, id); else window.localStorage.removeItem(ACTIVE_KEY); } catch (err) { /* 隐私模式：仅内存生效 */ }
+}
+
+// 一本 book 都没有（全新浏览器 / 清了站点数据 / 换设备）就当场自举一本默认簿。
+// 语言取 resolveInitialLang(null)：和 I18nProvider 首帧用的是同一条优先级
+// （localStorage 缓存 > 浏览器语言），不会出现「书名 Default、界面中文」的错位。
+// id 固定 => 多标签页同时冷启动也只会 put 同一行，不会长出两本默认簿。
+async function seedDefaultBook() {
+  const fresh = makeDefaultBook({ deviceLang: resolveInitialLang(null).lang });
+  await saveBook(fresh);
+  await writeLiveData(fresh.id, { events: [], templates: [] });
+  const after = await listBooks();
+  return after.length ? after : [fresh];
 }
 
 export function useBooks() {
@@ -44,7 +57,8 @@ export function useBooks() {
     let cancelled = false;
     (async () => {
       try {
-        const rows = await listBooks();
+        let rows = await listBooks();
+        if (!rows.length) rows = await seedDefaultBook();
         if (cancelled) return;
         setBooks(rows);
         const stored = readActiveId();

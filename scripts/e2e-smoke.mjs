@@ -5,6 +5,7 @@
 //   npm run smoke -- --url=http://localhost:3002     打已经在跑的服务器
 //   npm run smoke -- --headed --keep --slow=60       有头 + 保留临时 profile + 每步慢放 60ms
 //   npm run smoke -- --no-sandbox                       CI/容器里 Chrome 起不来时加（同时带 --disable-dev-shm-usage）
+//   npm run smoke -- --lang=zh-CN --stop-at=2           换一个浏览器语言跑前两步：默认簿应叫「默认」且周一起始
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -433,6 +434,7 @@ const en = (await import('../src/i18n/locales/en.js')).default;
 const zh = (await import('../src/i18n/locales/zh.js')).default;
 const { REASONS, PROTECTED_REASONS, MAX_SNAPSHOTS } = await import('../src/storage/snapshots.js');
 const { DB_NAME, DB_VERSION } = await import('../src/storage/idb.js');
+const { DEFAULT_BOOK_ID, LANG_WEEK_START, defaultBookName } = await import('../src/storage/books.js');
 let BOOKS1 = null;
 let TODAY_STR = null;
 let BASE = null;
@@ -485,6 +487,9 @@ const flags = [
   // CI/Linux 容器里 Chrome 常需要放弃沙箱才能起头less；只在显式传 --no-sandbox 时生效，本机默认路径不变。
   arg('no-sandbox') ? '--no-sandbox' : null,
   arg('no-sandbox') ? '--disable-dev-shm-usage' : null,
+  // 验证「中文浏览器上首屏自动建出『默认』簿」这类场景就传 --lang=zh-CN；不传时 headless Chrome 回退 en。
+  arg('lang') ? '--lang=' + arg('lang') : null,
+  arg('lang') ? '--accept-lang=' + arg('lang') : null,
   '--disable-renderer-backgrounding', '--disable-hang-monitor',
   arg('headed') ? null : '--headless=new',
   'about:blank',
@@ -566,23 +571,71 @@ if (arg('boot-only')) {
 }
 
 
-await step('需求① 首启引导（这台浏览器里没有 IndexedDB 数据）', async () => {
-  await H.until(en.firstRun.title, () => H.call('has', en.firstRun.title), 25000);
-  ok('引导页出现', en.firstRun.title);
-  assert('引导页写明「服务器不存用户数据」', await H.call('has', en.firstRun.intro));
+// 默认簿的书名 / 周开始日跟着「浏览器语言」走（app 里 detectLang 的同一套映射）。
+// headless Chrome 不带 --lang 时 navigator 回退 en；传 --lang=zh-CN 就能真跑一遍中文路径。
+function langOf(tag) {
+  const t = String(tag || '').toLowerCase();
+  if (t.indexOf('zh') === 0) return 'zh';
+  if (t.indexOf('ja') === 0) return 'ja';
+  if (t.indexOf('en') === 0) return 'en';
+  return '';
+}
+const BOOT_NAV = JSON.parse(await H.expr("JSON.stringify({ langs: navigator.languages || [], language: navigator.language || '' })"));
+const BOOT_LANG = (BOOT_NAV.langs.length ? BOOT_NAV.langs : [BOOT_NAV.language]).map(langOf).find((x) => !!x) || 'en';
+const BOOT_NAME = defaultBookName(BOOT_LANG);
+
+// 首启引导页已经没有了：这台浏览器里一本簿都没有时，useBooks 会当场自举一本
+// id=default-book、书名跟着浏览器语言本地化的默认簿，首屏直接落进周视图。
+await step('需求① 零本书自举：首屏就有一本「' + BOOT_NAME + '」簿（浏览器语言 ' + BOOT_LANG + '）', async () => {
+  await H.until('周视图表头 7 列', async () => (await H.call('count', '[data-header-date]')) === 7, 25000);
+  ok('没有引导页，首屏即工作区', '7 个表头日');
+  const rows = (await H.call('idb', 'books')) || [];
+  assert('books store 恰好一本', rows.length === 1, JSON.stringify(rows.map((r) => ({ id: r.id, name: r.name }))));
+  const seed = rows[0];
+  assert('id 固定为 ' + DEFAULT_BOOK_ID, seed.id === DEFAULT_BOOK_ID, JSON.stringify(seed.id));
+  assert('书名 = ' + BOOT_NAME, seed.name === BOOT_NAME, JSON.stringify(seed.name));
+  // --lang 传了却没生效（浏览器不吃这个 flag）时这一步等于白跑，所以必须红
+  const forced = typeof arg('lang', '') === 'string' ? langOf(arg('lang')) : '';
+  assert('浏览器语言 ' + BOOT_LANG + ' 与 --lang 指定一致', !forced || BOOT_LANG === forced, JSON.stringify(BOOT_NAV) + ' → ' + BOOT_LANG);
+  assert('语言 = 浏览器语言 ' + BOOT_LANG, seed.settings.language === BOOT_LANG, JSON.stringify(seed.settings.language));
+  assert('周开始日 = ' + BOOT_LANG + ' 默认 ' + LANG_WEEK_START[BOOT_LANG], seed.settings.weekStartsOn === LANG_WEEK_START[BOOT_LANG], String(seed.settings.weekStartsOn));
+  assert('时间轴默认全日 0-144', seed.settings.timelineStart === 0 && seed.settings.timelineEnd === 144, JSON.stringify([seed.settings.timelineStart, seed.settings.timelineEnd]));
+  const active = await H.expr('localStorage.getItem("event-logger:active-book")');
+  assert('活动簿指向默认簿', active === DEFAULT_BOOK_ID, JSON.stringify(active));
+  const live = await readLive(DEFAULT_BOOK_ID);
+  assert('默认簿的 live 行已附着且是空的', !!live && live.events.length === 0 && live.templates.length === 0, JSON.stringify(live && { e: live.events.length, t: live.templates.length, rev: live.rev }));
+  // 自举只写第 1 版：Workspace 挂载时 useEvents/useTemplates 会各自把空数组重新 setState 一次，
+  // 500ms 防抖到期后合并成一次「空内容重写」，rev 因此会再 +1（每本书都有这个既有行为）。
+  // 所以这里只断言「这行是自举建出来的、内容仍是空的」，不断言具体写次数，避免时序敏感。
+  assert('live 行由自举创建（rev >= 1，内容仍为空）', !!live && live.rev >= 1, live ? 'rev=' + live.rev : '没有 live 行');
+  assert('顶栏簿切换器显示书名', await H.call('has', BOOT_NAME));
   assert('只有这一份同源 IndexedDB', JSON.stringify(await H.call('idbShape')) === JSON.stringify([DB_NAME + '@' + DB_VERSION]));
   assert('零 JS 异常 / 零 CSP 违规', fatal().length === 0, fatal().join(' | '));
 });
 
-await step('需求② 建 EventBook：名字 + 周开始日 Tuesday + 语言 English', async () => {
-  await H.typeInto('input:not([type=file])', BOOK);
+await step('需求② 改这本默认簿：名字 + 周开始日 Tuesday', async () => {
+  await H.clickText('header span', '🗂');
+  await H.until('EventBook 菜单打开', async () => { const m = await H.call('menu'); return m.open ? true : null; }, 10000);
+  await H.clickText('div', en.book.settings);
+  await H.until('簿设置弹窗', () => H.call('has', en.book.settingsTitle), 10000);
+  ok('默认簿也走同一套簿设置', en.book.settingsTitle);
+  assert('弹窗里预填了默认书名', (await H.call('inputValue', 'input[placeholder=' + JSON.stringify(en.book.namePlaceholder) + ']')) === BOOT_NAME);
+  await H.typeInto('input[placeholder=' + JSON.stringify(en.book.namePlaceholder) + ']', BOOK);
   await H.clickText('button', weekName(2));
   const preview = await H.call('clickable', 'div', 'This week');
   assert('周预览文案跟着周开始日重算', !!preview, JSON.stringify(preview));
-  await H.clickText('button', en.firstRun.create);
-  await H.until('周视图表头 7 列', async () => (await H.call('count', '[data-header-date]', 'data-header-date')) === 7, 25000);
-  ok('进入周视图', '7 个表头日');
-  assert('顶栏显示书名', await H.call('has', BOOK));
+  await H.clickText('button', en.common.save);
+  await H.until('周视图表头 7 列', async () => (await H.call('count', '[data-header-date]')) === 7, 25000);
+  ok('保存后仍在周视图', '7 个表头日');
+  assert('顶栏显示新书名', await H.call('has', BOOK));
+  // 设置写盘有 400ms 合并窗口，必须轮询 IndexedDB 而不是单次读
+  const row = await until(async () => {
+    const rows = (await H.call('idb', 'books')) || [];
+    const r = rows.find((x) => x.id === DEFAULT_BOOK_ID);
+    return r && r.name === BOOK && r.settings.weekStartsOn === 2 ? r : null;
+  }, '默认簿改名 + Tuesday 落盘');
+  ok('设置写进 IndexedDB', 'id=' + row.id + ' weekStartsOn=' + row.settings.weekStartsOn);
+  assert('还是只有一本簿（改名不会变成新建）', ((await H.call('idb', 'books')) || []).length === 1);
 });
 
 // 月历 = 页面左上的日期面板。第 c 列的表头必须真是该列日期的星期，
@@ -637,6 +690,10 @@ await step('需求② 语言跟随当前 EventBook（en → zh → en）', async
   await H.until('中文界面', () => H.call('has', zh.header.history), 10000);
   ok('切到中文后顶栏变中文', zh.header.history);
   assert('周开始日 chip 也换语言', await H.call('has', zh.book.weekStartDays[2]));
+  // 默认书名是创建瞬间的一次性快照：界面换成中文也不会把已改名的簿再换回本地化默认名
+  const snapRows = (await H.call('idb', 'books')) || [];
+  const snapBook = snapRows.find((r) => r.id === DEFAULT_BOOK_ID);
+  assert('换语言不重算默认书名', !!snapBook && snapBook.name === BOOK, snapBook ? JSON.stringify(snapBook.name) : '默认簿不见了');
   await H.call('selectSet', 'header select', 'en');
   await H.until('回到英文', () => H.call('has', en.header.history), 10000);
   ok('切回英文', en.header.history);
@@ -905,6 +962,7 @@ await step('需求② 第二本 EventBook：数据与设置各自独立', async 
 });
 await step('关掉再打开：数据仍在（IndexedDB 持久 + 可离线打开）', async () => {
   const before = await H.call('eventBars');
+  const booksBefore = ((await H.call('idb', 'books')) || []).length;
   let loadedAt = 0;
   cdp.on((m) => { if (m === 'Page.loadEventFired') loadedAt = Date.now(); });
   await cdp.send('Page.reload', { ignoreCache: false });
@@ -912,6 +970,9 @@ await step('关掉再打开：数据仍在（IndexedDB 持久 + 可离线打开�
   await H.until('重载后回到工作区', () => H.call('clickable', 'button', en.header.history), 30000);
   const gR = await stableGrid('重载后网格稳定', weekDates(2, BASE), 30000);
   assert('活动 EventBook 记忆住了', await H.call('has', BOOK));
+  // 已有簿的浏览器再打开一次，绝不能又自举出一本默认簿
+  const booksAfter = ((await H.call('idb', 'books')) || []).length;
+  assert('重载不会再多自举一本簿', booksAfter === booksBefore, booksBefore + ' → ' + booksAfter);
   assert('事件仍在', gR.events.length === before.length && gR.events[0].includes(EV_OLD), JSON.stringify(gR.events));
   assert('周开始日仍是 Tuesday', gR.heads[0] === weekDates(2, BASE)[0], gR.heads.join(','));
   assert('重载后不残留回放态', !(await H.call('has', BANNER_HEAD)));

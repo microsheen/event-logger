@@ -53,7 +53,7 @@ Browser IndexedDB, database `event-logger` (version 1), four stores:
 | `snapshots` | `id` | past versions: each one carries a complete payload and can be replayed directly |
 | `meta` | `key` | the backup folder handle (`backupDirectory`) and the auto-mirror cadence (`mirrorIntervalMinutes`, default 10) |
 
-- The first launch runs the onboarding: create the first EventBook, or — if one exists on this machine — import the old `data.json`.
+- An empty browser bootstraps itself: the first launch automatically creates one EventBook named **Default** (localized — 默认 / Default / デフォルト, following the browser language) and lands straight in the week view; there is no onboarding screen. An old `data.json` on this machine is migrated by picking it in the EventBook menu (“📥 Import as new EventBook”).
 - Export / import live in the EventBook menu at the top left (the "Data & backup" section): export just the current book, or all books. **Import always creates a new EventBook; it never overwrites anything that already exists.** The history panel toolbar also carries a "⬇️ Export all" shortcut: same single implementation, works in every browser, no folder mirroring needed.
 - The only way to move between devices or browsers is export then import — there is no second copy on a server to pull.
 
@@ -94,9 +94,9 @@ npm run smoke     # headless Chrome end-to-end, 17 steps (real mouse dragging + 
 npm run csp:check # whether the inline script hash matches public/_headers
 ```
 
-`npm run smoke` covers exactly the three promises above: create a book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → the slim-header check (export/import now live in the book menu) → a final check that the whole session made zero non-GET requests.
+`npm run smoke` covers exactly the three promises above: a browser with no books bootstraps a Default one and renaming it keeps a single book → each book's week start and language really apply site-wide → drag to create events → the zero-storage fingerprint → manual save and hash dedup → snapshot structural invariants → edit content then replay an old version, every write during replay is blocked → restore (irreversible + automatic pre-restore) → data isolation for a second book → close and reopen and the data is still there + PWA registration → the slim-header check (export/import now live in the book menu) → a final check that the whole session made zero non-GET requests.
 
-Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=https://daily-event-logger.com` run it against the live demo (or any deployed site), `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses).
+Options: `--stop-at=N` run only the first N steps, `--applog` print the page log on failure, `--slow=MS` slow it down for humans, `--no-csp` disable CSP, `--url=https://daily-event-logger.com` run it against the live demo (or any deployed site), `--no-sandbox` (only needed when Chrome cannot start in Linux/containers; that is what CI uses), `--lang=zh-CN` give Chrome another browser language — combined with `--stop-at=2` it re-runs the empty-browser bootstrap and checks that the auto-created book is named in that language (默认 / Default / デフォルト) with the matching week start.
 
 ---
 

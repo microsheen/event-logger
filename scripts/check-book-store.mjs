@@ -8,6 +8,9 @@ import {
   sanitizeBookName,
   bookSlug,
   makeBook,
+  makeDefaultBook,
+  defaultBookName,
+  DEFAULT_BOOK_ID,
   isBook,
 } from '../src/storage/books.js';
 import { TOTAL_SLOTS } from '../src/utils/time.js';
@@ -112,6 +115,31 @@ eq('isBook 拒绝 null', isBook(null), false);
 const bA = makeBook({ name: 'A', language: 'zh' }, { nowMs: NOW, idFactory });
 const bB = makeBook({ name: 'B', language: 'en' }, { nowMs: NOW, idFactory });
 eq('两本簿的周开始日可以不同', bA.settings.weekStartsOn + '/' + bB.settings.weekStartsOn, LANG_WEEK_START.zh + '/' + LANG_WEEK_START.en);
+// —— 4b. 零本书时自举的默认簿（引导页已删除，这是冷启动唯一的建簿路径）——
+eq('默认簿 id 固定（两个标签页同时冷启动也只 put 同一行）', DEFAULT_BOOK_ID, 'default-book');
+eq('zh 默认书名', defaultBookName('zh'), '默认');
+eq('en 默认书名', defaultBookName('en'), 'Default');
+eq('ja 默认书名', defaultBookName('ja'), 'デフォルト');
+eq('非法/缺省语言回退默认语言的书名', defaultBookName('de') + '/' + defaultBookName(undefined), defaultBookName('en') + '/' + defaultBookName('en'));
+['zh', 'en', 'ja'].forEach((lang) => {
+  const d = makeDefaultBook({ nowMs: NOW, deviceLang: lang });
+  eq('默认簿书名本地化: ' + lang, d.name, defaultBookName(lang));
+  eq('默认簿用固定 id: ' + lang, d.id, DEFAULT_BOOK_ID);
+  eq('默认簿语言 = deviceLang: ' + lang, d.settings.language, lang);
+  eq('默认簿周开始日跟随语言: ' + lang, d.settings.weekStartsOn, LANG_WEEK_START[lang]);
+  eq('默认簿时间轴覆盖全日: ' + lang, d.settings.timelineStart + '-' + d.settings.timelineEnd, '0-' + TOTAL_SLOTS);
+  eq('默认簿统计口径默认按周: ' + lang, d.settings.statsScope, 'week');
+  eq('默认簿是合法 book: ' + lang, isBook(d), true);
+  const slug = bookSlug(d);
+  check('默认簿的镜像目录名可用: ' + lang, slug.indexOf(defaultBookName(lang)) === 0 && !/[\\/:*?"<>|]/.test(slug), slug);
+});
+eq('deviceLang 非法时回退默认语言', makeDefaultBook({ nowMs: NOW, deviceLang: 'fr' }).settings.language, 'en');
+eq('deviceLang 缺省时回退默认语言', makeDefaultBook({ nowMs: NOW }).settings.language, 'en');
+eq('同一时刻两次自举结果全等（幂等）',
+  JSON.stringify(makeDefaultBook({ nowMs: NOW, deviceLang: 'zh' })),
+  JSON.stringify(makeDefaultBook({ nowMs: NOW, deviceLang: 'zh' })));
+eq('自举簿的名字可被改名（sanitize 不改内容）', sanitizeBookName(makeDefaultBook({ nowMs: NOW, deviceLang: 'zh' }).name), '默认');
+
 // —— 5. 备份信封：v1（旧单书整包）与 v2（多书）——
 const v1 = { events: [{ id: 'e1', date: '2026-09-01', startSlot: 60, endSlot: 66, category: 'work', name: 'x' }], templates: [{ id: 't1', name: 'T', category: 'work', timestamps: [1] }] };
 const v2 = {
@@ -424,4 +452,4 @@ if (problems.length) {
   problems.slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('book store check OK: 设置守门 / 书名与文件名清洗 / v1+v2 信封 / 导入防撞 / 文件夹整链重推 / 镜像节奏与节流 / 查看文件夹只读列举');
+console.log('book store check OK: 设置守门 / 书名与文件名清洗 / 零本书自举默认簿 / v1+v2 信封 / 导入防撞 / 文件夹整链重推 / 镜像节奏与节流 / 查看文件夹只读列举');

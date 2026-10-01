@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { I18nProvider, useI18n } from './i18n/index.jsx';
 import { useBooks } from './hooks/useBooks.js';
 import { useBackupFolder } from './hooks/useBackupFolder.js';
@@ -7,15 +7,21 @@ import { useBookTransfer } from './hooks/useBookTransfer.js';
 import { useToast } from './hooks/useToast.js';
 import Toast from './components/Toast.jsx';
 import Workspace from './components/Workspace.jsx';
-import FirstRunGuide from './components/FirstRunGuide.jsx';
 import { isSupported } from './storage/idb.js';
-import { fetchLegacyData } from './utils/legacyFetch.js';
 import './styles/global.css';
 
 const screenStyle = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   height: '100vh', padding: '24px', textAlign: 'center',
   fontSize: '16px', color: 'var(--color-text-secondary)',
+};
+
+const errDetailStyle = {
+  marginTop: '10px', fontSize: '12px', color: 'var(--color-text-secondary)', wordBreak: 'break-all',
+};
+const retryBtnStyle = {
+  marginTop: '18px', padding: '10px 22px', borderRadius: 'var(--radius)',
+  background: 'var(--color-accent)', color: '#fff', fontWeight: 700, fontSize: '14px',
 };
 
 const cardStyle = {
@@ -25,7 +31,8 @@ const cardStyle = {
   fontSize: '14px', color: 'var(--color-text)', lineHeight: 1.7, textAlign: 'left',
 };
 
-// 语言由当前 EventBook 决定，所以 Provider 必须在读到 book 之后再包一层
+// 语言由当前 EventBook 决定，所以 Provider 必须在读到 book 之后再包一层。
+// 渲染门顺序：不支持 IDB → 书目加载中（含零本书时自举默认簿）→ 本书数据加载中 → Workspace
 export default function App() {
   const books = useBooks();
   const backup = useBackupFolder();
@@ -45,11 +52,8 @@ export default function App() {
 }
 
 function RootView({ books, backup, bookData }) {
-  const { tr, lang } = useI18n();
+  const { tr } = useI18n();
   const { toast, showToast } = useToast();
-  // undefined = 还没探测过；null = 这台电脑上没有旧 data.json
-  const [legacy, setLegacy] = useState(undefined);
-  const [legacyBusy, setLegacyBusy] = useState(false);
   const reportedError = useRef(null);
 
   const beforeExport = useCallback(async () => {
@@ -66,51 +70,11 @@ function RootView({ books, backup, bookData }) {
   const transfer = useBookTransfer(books, backup, guards);
 
   useEffect(() => {
-    let cancelled = false;
-    fetchLegacyData().then((data) => { if (!cancelled) setLegacy(data); }).catch(() => { if (!cancelled) setLegacy(null); });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
     const message = bookData.storageError || books.storageError;
     if (!message || reportedError.current === message) return;
     reportedError.current = message;
     showToast(tr('app.storageFailed', { message: message }), 'error');
   }, [bookData.storageError, books.storageError, showToast, tr]);
-
-  const handleCreate = useCallback(async (form) => {
-    const book = await books.createBook(form);
-    showToast(tr('book.created', { name: book.name }), 'info');
-    return book;
-  }, [books.createBook, showToast, tr]);
-
-  const handleRestoreFile = useCallback(async (file) => {
-    const result = await transfer.importFromFile(file);
-    if (!result.ok) {
-      showToast(tr(result.badJson ? 'header.importBadFile' : 'app.importNothing'), 'error');
-      return false;
-    }
-    showToast(tr('app.importBooks', { n: result.count }), 'info');
-    return true;
-  }, [transfer.importFromFile, showToast, tr]);
-
-  const handleImportLocal = useCallback(async () => {
-    setLegacyBusy(true);
-    try {
-      const data = legacy || await fetchLegacyData();
-      if (!data) { showToast(tr('firstRun.localNone'), 'error'); return false; }
-      const result = await transfer.importEnvelope(data, { bookName: tr('book.unnamed') });
-      if (!result.ok) { showToast(tr('app.importNothing'), 'error'); return false; }
-      showToast(tr('app.importBooks', { n: result.count }), 'info');
-      setLegacy(null);
-      return true;
-    } catch (err) {
-      showToast(tr('firstRun.localFailed', { message: err && err.message ? err.message : String(err) }), 'error');
-      return false;
-    } finally {
-      setLegacyBusy(false);
-    }
-  }, [legacy, transfer.importEnvelope, showToast, tr]);
 
   if (!isSupported()) {
     return <div style={screenStyle}><div style={cardStyle}>{'⚠️'} {tr('app.noStorage')}</div></div>;
@@ -120,17 +84,20 @@ function RootView({ books, backup, bookData }) {
     return <div style={screenStyle}>{'⏳'} {tr('app.loading')}</div>;
   }
 
+  // 一本 book 都没有时 useBooks 会当场自举「默认」簿，所以这里只剩「连自举都失败」：
+  // 配额耗尽 / 隐私模式 / IDB 被别的标签页阻塞。引导页已经不存在，给一条重试出口。
   if (!books.activeBook) {
     return (
       <>
-        <FirstRunGuide
-          lang={lang}
-          legacy={legacy}
-          legacyBusy={legacyBusy}
-          onCreate={handleCreate}
-          onRestoreFile={handleRestoreFile}
-          onImportLocal={handleImportLocal}
-        />
+        <div style={screenStyle}>
+          <div style={cardStyle}>
+            <div>{'⚠️'} {tr('app.initFailed')}</div>
+            {books.storageError && <div style={errDetailStyle}>{books.storageError}</div>}
+            <button style={retryBtnStyle} onClick={() => window.location.reload()}>
+              {tr('common.retry')}
+            </button>
+          </div>
+        </div>
         <Toast toast={toast} />
       </>
     );

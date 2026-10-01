@@ -16,7 +16,9 @@ export default {
     importBooks: '已导入 {n} 本 EventBook',
     importNothing: '导入失败：文件里没有可识别的数据',
     localBadge: '🔒 数据仅存本机',
+    localBadgeHint: '所有数据只保存在这台设备的浏览器里，服务器上不存放任何用户数据。',
     exportDone: '已导出 {n} 本 EventBook',
+    initFailed: '这台浏览器里的 EventBook 读不出来，自动创建也没有成功。请退出隐私模式或换一个浏览器后重试。',
   },
   header: {
     templates: '📋 模板管理',
@@ -36,6 +38,7 @@ export default {
     delete: '删除',
     create: '创建',
     close: '关闭',
+    retry: '重试',
   },
   category: {
     work: '工作',
@@ -122,6 +125,7 @@ export default {
     name: '簿名称',
     namePlaceholder: '例如：2026 工作日志',
     unnamed: '未命名 EventBook',
+    defaultName: '默认',
     language: '界面语言',
     languageHint: '整站界面语言跟随当前 EventBook，换一本书就可能换成另一种语言。',
     weekStart: '周开始日期',
@@ -222,18 +226,4 @@ export default {
     viewMore: '另有 {n} 个文件未列出',
     viewNote: '这里只是查看：应用不会从这个文件夹读数据，删掉它也不影响记录。每个目录最多列 {limit} 个文件。',
   },
-  firstRun: {
-    title: '先创建一本 EventBook',
-    intro: '所有数据只保存在这台设备的浏览器里，服务器上不存放任何用户数据。',
-    name: '簿名称',
-    namePlaceholder: '例如：2026 日常记录',
-    language: '界面语言',
-    weekStart: '周开始日期',
-    create: '创建并开始记录',
-    fromBackup: '📥 从备份文件恢复',
-    localImport: '💽 导入这台电脑上的旧数据',
-    localFound: '检测到本机 data.json 里有 {n} 个事件，可直接导入。',
-    localNone: '没有检测到这台电脑上的旧数据。',
-    localFailed: '读取本机旧数据失败：{message}',
-    footnote: '数据存放位置：浏览器 IndexedDB · 可镜像到本地文件夹',
-  },};
+};

@@ -2,11 +2,14 @@
 // 纯校验在文件上半部（Node 可直接断言），IndexedDB 读写在末尾薄胶层。
 import { STORE, get, getAll, put, remove } from './idb.js';
 import { normalizeWeekStart, TOTAL_SLOTS } from '../utils/time.js';
-import { isValidLang, DEFAULT_LANG } from '../i18n/core.js';
+import { isValidLang, DEFAULT_LANG, translate } from '../i18n/core.js';
 
 export const STATS_SCOPES = ['day', 'week', 'month', 'year'];
 export const LANG_WEEK_START = { zh: 1, en: 0, ja: 1 };
 export const MAX_BOOK_NAME = 40;
+// 一本 book 都没有时自举出来的那本就叫默认簿，id 固定：
+// 两个标签页同时冷启动也会写同一个 key，所以库里永远只有一本默认簿。
+export const DEFAULT_BOOK_ID = 'default-book';
 
 export function defaultWeekStartsOn(lang) {
   return Object.prototype.hasOwnProperty.call(LANG_WEEK_START, lang) ? LANG_WEEK_START[lang] : 1;
@@ -86,6 +89,24 @@ export function makeBook(raw, options) {
 
 export function isBook(value) {
   return !!value && typeof value === 'object' && typeof value.id === 'string' && !!value.settings;
+}
+
+// 默认簿的书名取「当下界面语言」的那一版（默认 / Default / デフォルト）。
+// 名字在创建瞬间定死：之后用户改这本书的语言或改名，都不会被自动重算。
+export function defaultBookName(lang) {
+  return translate(isValidLang(lang) ? lang : DEFAULT_LANG, 'book.defaultName');
+}
+
+// 零本书时的自举簿：除了书名和固定 id，其余默认值全部走 makeBook 那一条实现，
+// 于是 language=deviceLang、weekStartsOn=该语言默认、时间轴全日、statsScope=week。
+export function makeDefaultBook(options) {
+  const opts = options || {};
+  const deviceLang = isValidLang(opts.deviceLang) ? opts.deviceLang : DEFAULT_LANG;
+  const id = typeof opts.id === 'string' && opts.id ? opts.id : DEFAULT_BOOK_ID;
+  return makeBook(
+    { id: id, name: defaultBookName(deviceLang) },
+    { nowMs: opts.nowMs, deviceLang: deviceLang },
+  );
 }
 
 // —— I/O 薄胶层 ——

@@ -167,7 +167,7 @@ export default function Header({
         </div>
       </div>
       <div style={btnGroupStyle}>
-        <span style={badgeStyle} title={tr('firstRun.intro')}>{tr('app.localBadge')}</span>
+        <span style={badgeStyle} title={tr('app.localBadgeHint')}>{tr('app.localBadge')}</span>
         <HoverButton onClick={onOpenHistory} title={tr('history.title')}>
           {tr('header.history')}{historyCount ? ' (' + historyCount + ')' : ''}
         </HoverButton>

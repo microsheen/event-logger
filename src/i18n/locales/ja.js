@@ -16,7 +16,9 @@ export default {
     importBooks: '{n} 冊の EventBook を取り込みました',
     importNothing: 'インポート失敗：読み取れるデータがありません',
     localBadge: '🔒 ローカルのみ保存',
+    localBadgeHint: 'データはこのデバイスのブラウザだけに保存されます。サーバーにはユーザーデータを置きません。',
     exportDone: '{n} 冊の EventBook を出力しました',
+    initFailed: 'このブラウザの EventBook を読み込めず、自動作成もできませんでした。シークレットモードを解除するか、別のブラウザをお試しください。',
   },
   header: {
     templates: '📋 テンプレート',
@@ -36,6 +38,7 @@ export default {
     delete: '削除',
     create: '作成',
     close: '閉じる',
+    retry: '再試行',
   },
   category: {
     work: '仕事',
@@ -122,6 +125,7 @@ export default {
     name: 'ブック名',
     namePlaceholder: '例：2026 仕事ログ',
     unnamed: '名称未設定の EventBook',
+    defaultName: 'デフォルト',
     language: '表示言語',
     languageHint: 'UI 全体の言語は現在の EventBook に追従します。ブックを切り替えると言語も変わります。',
     weekStart: '週の開始日',
@@ -222,18 +226,4 @@ export default {
     viewMore: 'ほか {n} 件は表示していません',
     viewNote: 'これは閲覧専用です：アプリはこのフォルダーからデータを読み戻さず、削除しても記録は影響を受けません。1 フォルダーあたり最大 {limit} 件まで表示。',
   },
-  firstRun: {
-    title: '最初の EventBook を作成',
-    intro: 'データはこのデバイスのブラウザだけに保存されます。サーバーにはユーザーデータを置きません。',
-    name: 'ブック名',
-    namePlaceholder: '例：2026 日々の記録',
-    language: '表示言語',
-    weekStart: '週の開始日',
-    create: '作成して記録を開始',
-    fromBackup: '📥 バックアップファイルから復元',
-    localImport: '💽 この PC の古いデータを取り込む',
-    localFound: 'ローカルの data.json に {n} 件のイベントを見つけました。そのまま取り込めます。',
-    localNone: 'この PC 上の古いデータは見つかりませんでした。',
-    localFailed: 'ローカルデータの読み込みに失敗：{message}',
-    footnote: '保存先：ブラウザの IndexedDB · ローカルフォルダーにミラー可能',
-  },};
+};

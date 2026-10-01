@@ -53,7 +53,7 @@ npm start        # node server.js：只发静态文件 + 只读 legacy 探测，
 | `snapshots` | `id` | 历史版本：每份都自带完整 payload，可直接回放 |
 | `meta` | `key` | 备份文件夹句柄（`backupDirectory`）与自动镜像节奏（`mirrorIntervalMinutes`，默认 10 分钟） |
 
-- 首次启动会走"首启引导"：新建第一本 EventBook，或者（本机有的话）导入旧版 `data.json`。
+- 浏览器里一本簿都没有时会自动补一本：首次打开就直接创建名为「**默认**」的 EventBook（按浏览器语言取 默认 / Default / デフォルト）并落进周视图，界面上没有引导页。本机若有旧版 `data.json`，在 EventBook 菜单里「📥 导入为新的 EventBook」选中它即可迁移。
 - 导出 / 导入都在左上角的 EventBook 菜单里（「数据与备份」段）：可以只导当前这本，也可以导全部书。**导入永远是"新增 EventBook"，不覆盖任何已有内容。** 历史面板的工具栏里另有「⬇️ 导出全部」快捷按钮：同一份实现，任何浏览器都能用，不依赖文件夹镜像。
 - 换设备 / 换浏览器的唯一办法就是导出再导入 —— 服务器上没有第二份可以拉。
 
@@ -94,9 +94,9 @@ npm run smoke    # 无头 Chrome 端到端 17 步（真鼠标拖拽 + 直接读 
 npm run csp:check # 内联脚本哈希与 public/_headers 是否一致
 ```
 
-`npm run smoke` 覆盖的正是上面三条承诺：建书 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 顶栏瘦身复核 → 收尾复核全程零非 GET 请求。
+`npm run smoke` 覆盖的正是上面三条承诺：零本书的浏览器自动补出「默认」簿、改名仍只有一本 → 每本书的周开始日与语言真的作用于整站 → 拖拽建事件 → 零存储指纹 → 手动存档与 hash 去重 → 快照结构不变量 → 改内容后回放旧版本、回放期写操作全被拦 → 恢复（不可逆 + 自动 pre-restore）→ 第二本书数据隔离 → 关掉再打开数据仍在 + PWA 注册 → 顶栏瘦身复核 → 收尾复核全程零非 GET 请求。
 
-选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=https://daily-event-logger.com` 把测试直接打在线上 demo 上（也可以是任何已部署站点）、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）。
+选项：`--stop-at=N` 只跑前 N 步、`--applog` 失败时打印页面日志、`--slow=MS` 放慢给人看、`--no-csp` 关 CSP、`--url=https://daily-event-logger.com` 把测试直接打在线上 demo 上（也可以是任何已部署站点）、`--no-sandbox`（Linux/容器里 Chrome 起不来时才需要，CI 用的就是它）、`--lang=zh-CN` 给 Chrome 换一个浏览器语言，配 `--stop-at=2` 就能单独重跑「零本书自举」那两步，验证自动建出的默认籍书名与周开始日跟着浏览器语言（默认 / Default / デフォルト）。
 
 ---
 

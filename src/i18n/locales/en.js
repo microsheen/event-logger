@@ -16,7 +16,9 @@ export default {
     importBooks: 'Imported {n} EventBook(s)',
     importNothing: 'Import failed: no readable data in this file',
     localBadge: '🔒 Local-only data',
+    localBadgeHint: 'All data lives only in this browser on this device. The server stores no user data.',
     exportDone: 'Exported {n} EventBook(s)',
+    initFailed: 'Could not read this browser’s EventBooks, and creating one automatically failed too. Leave private mode or try another browser, then retry.',
   },
   header: {
     templates: '📋 Templates',
@@ -36,6 +38,7 @@ export default {
     delete: 'Delete',
     create: 'Create',
     close: 'Close',
+    retry: 'Retry',
   },
   category: {
     work: 'Work',
@@ -122,6 +125,7 @@ export default {
     name: 'Book name',
     namePlaceholder: 'e.g. 2026 Work Log',
     unnamed: 'Untitled EventBook',
+    defaultName: 'Default',
     language: 'Interface language',
     languageHint: 'The whole interface follows the current EventBook, so switching books may switch language.',
     weekStart: 'Week starts on',
@@ -222,18 +226,4 @@ export default {
     viewMore: '{n} more files not listed',
     viewNote: 'View only: the app never reads data back from this folder, and deleting it does not affect your log. Up to {limit} names per folder.',
   },
-  firstRun: {
-    title: 'Create your first EventBook',
-    intro: 'All data lives only in this browser on this device. The server stores no user data.',
-    name: 'Book name',
-    namePlaceholder: 'e.g. 2026 Daily Log',
-    language: 'Interface language',
-    weekStart: 'Week starts on',
-    create: 'Create and start logging',
-    fromBackup: '📥 Restore from a backup file',
-    localImport: '💽 Import this computer’s old data',
-    localFound: 'Found {n} events in the local data.json — import them directly.',
-    localNone: 'No old local data was found on this computer.',
-    localFailed: 'Could not read local data: {message}',
-    footnote: 'Stored in browser IndexedDB · can be mirrored to a local folder',
-  },};
+};
