@@ -407,16 +407,25 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
   拦下是兜底，不是解决。首轮线上 smoke 的 9 条红里有 **7 条**是它：「零 JS 异常 / 零 CSP 违规」3 处、
   「镜像块渲染零 JS 异常」、「帮助面板全程零 JS 异常」、「零第三方」、「全程零跨域」（另 2 条是 §9.3 那两个脚本抖动）。
   同一套产物在本地跑 18 步全绿——本地那个随机端口服务器不属于这个 zone，没人给它注入。
-- **修法（只有持有该 Cloudflare 账号的人能做，仓库侧改不了；按顺序试，第 3 步是兜底）**：
-  1. 控制台 → **Analytics & Logs → Web Analytics** → 选中 `daily-event-logger.com` 那个站点 →
+- **修法（只有持有该 Cloudflare 账号的人能做，仓库侧改不了）**：
+  1. 控制台 → **Analytics & Logs → Web Analytics** → 选中 `daily-event-logger.com` 站点 →
      **Manage site → Advanced Options** → 把 **Automatic setup / JS Snippet injection** 设为 **Disabled** → Update。
+     **⚠️ 本账号里没有这个下拉框**，见下面「实际结案」。
   2. 再看 **Workers & Pages → `daily-event-logger` → Settings → Web Analytics**，项目级也有一个开关，两处都要关。
-  3. **必须再来一次部署**：官方与社区实测都是「关掉后已注入的 beacon 不会立刻消失，要等下一次 Pages 部署」
-     （零改动重发也算）。所以关掉之后 `git commit --allow-empty` push 一次，或本地 `npm run deploy`，再验。
-  4. 若这个访问量统计本来就不要了，直接 **Delete site** 更彻底（那个 token 已经随 HTML 公开在公网，上面抄录时写作 `<BEACON_TOKEN>`，删站点顺手作废它）。
-     注意社区有未关的 issue（cloudflare/workers-sdk#14552）说某些账号里 Pages **找不到**这个开关、关不掉——真碰上就走 4。
-- **怎么确认真的关掉**：带浏览器式请求头再取一次 `/`，`data-cf-beacon` 应当消失、字节数回到 **1904**（应当与本机 `dist/index.html` 逐字节相等）；
-  然后 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.com` 应 18 步全绿。
+  3. 访问量统计本来就不要 → 直接 **Delete site** 更彻底（那个 token 已经随 HTML 公开在公网，上面抄录时写作 `<BEACON_TOKEN>`，
+     删站点顺手作废它）。删的只是 Analytics 的站点属性：域名、Pages 项目、产物、安全头一概不动。
+- **✅ 实际结案（2026-10-01 15:03Z，走第 3 步）**，顺带纠正两处传闻：
+  - **本账号 `Advanced Options` 展开后只有「Web Analytics Rules（要 Pro 套餐才给用）」的升级推销和一个红色 Delete，
+     根本没有 Automatic setup 下拉框**——就是社区 cloudflare/workers-sdk#14552 / #15898（"Disabling Web Analytics for
+     Pages is no longer possible"）说的情形。所以对本项目唯一可操作的入口是 **Delete**；**不要为此升级套餐**，
+     付费买到的是过滤规则，不是「停止注入」。
+  - **Delete 之后注入立刻停止，并不需要再发一次部署。** 官方文档与社区的说法是「注入发生在部署时，关掉要等下一次
+     Pages 部署才消失」，本例不成立。教训：**先复验，再决定要不要发空提交**，别白跑一轮 CI。
+  - 15:04Z 复验：三 host 带浏览器式请求头取 `/` 全部回到 **1904 B / 1802 字符**，`data-cf-beacon`、`cloudflareinsights.com`、
+     `cdn-cgi` 全无，9 项安全头原样。与本机 `dist/index.html` 只差 asset 文件名的 hash（跨环境不稳定，见 §13 那条 14:12）。
+- **怎么确认真的关掉**：带浏览器式请求头再取一次 `/`，`data-cf-beacon` 应当消失、字节数回到 **1904**（与本机产物只差一个
+  asset hash）；再 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.pages.dev`，应 18 步全绿（apex 若被公司
+  网关拦，见 §9 的绕法）。**2026-10-01 15:06Z 已按此验过：196 条断言、0 红。**
 - **别用的歪路**：把 `static.cloudflareinsights.com` 加进 CSP 白名单能让控制台安静，但那等于亲手把
   「零第三方」的承诺改掉——要关的是注入，不是报警。
 
@@ -431,6 +440,9 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
   错的是网络环境。同一套产物在 CI（GitHub Runner，不受公司网关约束）里 18 步全绿。
 - **影响面**：只有这台企业机。手机热点或等域名被重新分类就好。
 - **可选缓解**：在网关提示页点 Continue 放行一次；请 IT 加白；或者干脆不在本机打线上（验收以 CI 为准）。
+- **绕法（15:06 实测有效）**：同一份产物也挂在 `daily-event-logger.pages.dev`，那个域名不在公司网关的拦截名单里。
+  要拿「线上全绿」这个结论时打 `--url=https://daily-event-logger.pages.dev`，别在 apex 上重试到怀疑人生。两者产物逐字节
+  相同（§8.1），所以这个结论对 apex 同样成立。
 
 顺带四条同类经验（前三条是「本机网络 / 本地秒开 vs 真实用户视角」，第 4 条是「本机跑一千遍都绿、CI 上偶发红」）：
 
@@ -514,7 +526,7 @@ git push origin master      # 32c175b..062aacc
 | 4 | HSTS 缺失 | 无 `Strict-Transport-Security` | 首次访问仍可能被降级/改写（对企业网络尤其有意义） | `_headers` 加 `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`，或控制台开 HSTS |
 | 5 | **API token 在聊天里明文出现过** | 权限含 Pages:Edit + Zone DNS:Edit | 能重新部署这个站点、能改这两条 CNAME | 去控制台 **Roll**，然后只更新 GitHub 的 `CLOUDFLARE_API_TOKEN` secret（字符串变了不用重跑任何绑定） |
 | 6 | 历史里那条 Gmail + 域名自动续费 | `e9b0559` 的 author 是个人 Gmail；`.com` 默认自动续费（10.46 USD/年，2027-10-01 到期） | Gmail 已在公网历史里；续费不关的话明年会自己扣钱 | Gmail 要不要洗由你定：rewrite 会重放那条碰 workflow 的提交，**同样需要 `workflow` scope**（现在有了，随时可做）；续费开关建议现在就去看一眼 |
-| 7 | **关掉 zone 上的 Web Analytics 自动注入**（§8.4） | apex / `www` 的 HTML 被插入 `static.cloudflareinsights.com/beacon.min.js`，执行被本站 CSP 拦下 | 真实浏览器控制台会留 CSP 违规；线上 smoke 7 条断言红；「零第三方」目前是靠 CSP 兜底而不是靠没注入 | 控制台把 **Automatic setup** 设为 Disabled（或删站点），约 10 分钟后复跑 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.com` |
+| 7 | ~~关掉 zone 上的 Web Analytics 自动注入~~ **✅ 15:03 已关（Delete 站点属性）** | 曾经：apex / `www` 的 HTML 被插入 `static.cloudflareinsights.com/beacon.min.js`，执行被自家 CSP 拦下 | 现在：三 host 带浏览器式请求头都是 1904 B、无 beacon；线上 smoke 18 步 196 条断言全绿（§13 15:06）。「零第三方」不再靠 CSP 兜底 | 复验口径见 §8.4 末尾。日后若要用 Web Analytics，走 **Manual setup**（自己粘 snippet），别再开自动注入 |
 
 补充说明（不算决策，但要知道）：**中国大陆访问 Cloudflare 免费节点不稳定**是普遍现象，
 与本项目配置无关。如果目标用户主要在境内，要么接受偶发不通，要么换带中国大陆优化的方案（那会引入备案与新的信任问题，
@@ -599,6 +611,11 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 14:17 → 14:18 | run `36875325960`（`ed326e3`，纯文档）checks + build **偶发红** | 撞上面第 4 条那个毫秒边界；smoke / publish 两个 job 因此 `skipped`，线上产物没动（仍是 `71b3ef6` 那一版） |
 | 14:20 → 14:22 | `check-template-sort.mjs` 冻结基准时钟（141 → 144 行） | 只动测试脚本，改完连打 40 遍 0 红；design.md 文件索引里的行数与判据同步 |
 | 14:23:34 → 14:25:33 | run `36875959507`（`02be0fe`）三 job success | 九项不变量 + 18 步 smoke 全绿，publish 上线 deployment（bundle 换成 `index-CqlvO2qS.js`，三 host 同一份；帮助开头三块的新文案与两个 `data-help-*` 锚点复核在产物里）。**这条记录本身要靠下一次提交带上，所以它写的「线上当前 bundle」到了那次部署又会变——比对内容，别比对文件名** |
+| 14:28:28 | run `36876350740`（`aa45a1c`，纯文档）三 job success | deployment `de6257b3`；线上当前 bundle `index-D_bhO3R_.js`，三 host 同一份 |
+| 15:01 → 15:02 | 交接摘要说「工作树干净」是错的 | `git status` 有 11 个已改文件 + 5 个未跟踪文件，是一整块**未提交**的「事件描述」功能（`desc:check` 那一版）。本轮**不碰它**，线上验证改到 HEAD 的独立 worktree 里做（`git worktree add --detach` + 只读跑 smoke，收尾先 `rmdir` 摘掉 node_modules 联接再 `git worktree remove`，绝不递归穿过联接） |
+| 15:03 | ✅ §8.4 结案：在控制台 **Delete** 掉 Web Analytics 站点属性 | 该账号的 `Advanced Options` 里根本没有 Automatic setup 下拉框，只有 Rules 的 Pro 升级推销 + 红色 Delete。**删完注入当场就停，没有重发部署** |
+| 15:04 | 三 host 带浏览器式请求头复验：全部 1904 B / 1802 字符 | `data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无；与本机 `dist/index.html` 只差一处 asset 文件名 hash（`index-BobZR8tk` 本机旧构建 vs `index-D_bhO3R_` 线上，长度相同所以都是 1904 B）；9 项安全头原样 |
+| 15:05 → 15:06 | 线上 smoke **首次 18 步全绿**：196 条断言、0 红 | apex 那次仍被 Zscaler 拦在第 1 步（`C03 …` + 两条 403），改打 `pages.dev` 就通了（见 §9 新增绕法）。`data-build="aa45a1ce-20261001142651"` 证明测的正是 `de6257b3`；「零第三方」「全程零跨域」「全程零非 GET（33 个请求全是 GET）」「零 CSP 违规」全部转绿 |
 
 ---
 
