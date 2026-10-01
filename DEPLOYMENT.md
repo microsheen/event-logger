@@ -20,7 +20,7 @@
 | Pages 默认域名 | https://daily-event-logger.pages.dev | 与正式域名是**同一份产物**，已逐字节比对 |
 | 托管方式 | Cloudflare Pages，Direct Upload（纯静态） | 项目名 `daily-event-logger` |
 | 当前线上产物 | deployment `88d8109982f8f02952ddf22b4f7d386d32b1b769`（Direct Upload 以提交 SHA 作部署 id），来自 commit `88d8109` | 2026-10-01T13:27:40Z 上线（首条 `8abb842e` 仍永久可访问） |
-| 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；最近一次 run `36882901568`（`d2f5420`）三 job 全绿 |
+| 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；每一次 run 的 id、耗时与产物变化都逐条记在 §13 时间线，别看这里的「最近一次」 |
 | 上线开关 | 仓库变量 `DEPLOY_ENABLED = true` | 改成 `false` 即停止自动上线 |
 | 域名 | Cloudflare Registrar 注册，`.com` | 2026-10-01 注册，2027-10-01 到期，**默认自动续费** |
 | 仓库 | https://github.com/microsheen/event-logger （公开，MIT） | 从 GitHub Enterprise 迁出，历史压成一条初始提交后再无敏感 blob |
@@ -460,9 +460,15 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
    同期浏览器和 `Invoke-WebRequest https://github.com` 一直是通的、`api.github.com` 也全程可用
    （`gh run view` 一切正常）——原因是系统 PAC（`AutoConfigURL=http://127.0.0.1:9000/localproxy-*.pac`）
    兜底 `return "PROXY 127.0.0.1:9000"`，而 **git 从不读 PAC，只会直连**。所以「网页能开、git 连不上」并不矛盾。
-   - **确定性绕法（比盲重试快得多）**：`git -c http.proxy=http://127.0.0.1:9000 push origin master`。
-     15:16Z 用这条一次就通（`aa45a1c..d2f5420`）。**写成一次性 `-c` 参数，别 `git config --global http.proxy`
-     固化**：那个本地代理是公司机器上的进程，换网络或它没起来时，固化会把本来能直连的 push 全钉死。
+   - **两条路各自都会抽，一条不通就换另一条**（别说什么「确定性绕法」）。本轮同一台机器上的实测样本：
+     15:13Z 与 15:15Z 直连两次**快速失败** → 15:16Z 走代理 **7.6 s 一次就通**（`aa45a1c..d2f5420`）
+     → 15:19Z 直连又 3/3 通 → 15:28Z 走代理的 push **挂住不返回**（>1.5 min）→ 15:30Z 换回直连 **6 s 发上去**
+     （`d2f5420..d8b0d46`）。同一条链路一会儿最快一会儿最慢，所以值得做的是「换路 + 设超时」，不是迷信某一条。
+   - **push 必须带超时**：git 默认没有连接超时，代理链路挂住时 `git push` 会**无限等**——本轮就留下过一个
+     15:28Z 起再没返回的 `git-remote-https`。加 `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20`
+     （20 s 内低于 1000 B/s 就中断），才能拿到失败而不是卡死。
+   - 代理参数只写成一次性 `-c http.proxy=http://127.0.0.1:9000`，**别 `git config --global http.proxy` 固化**：
+     那个本地代理是公司机器上的进程，换网络或它没起来时，固化会把本来能直连的 push 全钉死。
    - **先分清报错类型**（这条不变）：`refusing to allow an OAuth App...` 是权限问题（见 §10）；
      `Failed to connect` 是网络/代理问题，不要去改凭证。13:38–13:44 那次连续 4 次失败、第 5 次才通，
      当时按「抖动」记的，现在看同属这条——直接加 `-c http.proxy=` 就不必重试 5 遍。
@@ -629,7 +635,8 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 15:04 | 三 host 带浏览器式请求头复验：全部 1904 B / 1802 字符 | `data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无；与本机 `dist/index.html` 只差一处 asset 文件名 hash（`index-BobZR8tk` 本机旧构建 vs `index-D_bhO3R_` 线上，长度相同所以都是 1904 B）；9 项安全头原样 |
 | 15:05 → 15:06 | 线上 smoke **首次 18 步全绿**：196 条断言、0 红 | apex 那次仍被 Zscaler 拦在第 1 步（`C03 …` + 两条 403），改打 `pages.dev` 就通了（见 §9 新增绕法）。`data-build="aa45a1ce-20261001142651"` 证明测的正是 `de6257b3`；「零第三方」「全程零跨域」「全程零非 GET（33 个请求全是 GET）」「零 CSP 违规」全部转绿 |
 | 15:13 → 15:15 | `d2f5420` 的 push 直连失败 2 次 | 都报 `Failed to connect to github.com port 443`；当时仍按「网关抖动、重试即可」（§9 第 2 条旧口径）处理 |
-| 15:16 | ✅ 改用 `git -c http.proxy=http://127.0.0.1:9000 push` **一次就通**（`aa45a1c..d2f5420`） | 找到真因：系统 PAC 兜底走 `PROXY 127.0.0.1:9000`，而 git 不读 PAC。§9 第 2 条据此重写；15:19Z 复测直连又 3/3 通，说明重试确实也能通，只是慢 |
+| 15:16 | 改用 `git -c http.proxy=http://127.0.0.1:9000 push` **7.6 s 一次就通**（`aa45a1c..d2f5420`） | 找到一条被忽略的原因：系统 PAC 兜底走 `PROXY 127.0.0.1:9000`，而 git 不读 PAC |
+| 15:28 → 15:30 | 同一个代理参数这次**挂住不返回**，换直连 6 s 发上去（`d2f5420..d8b0d46`） | 推翻我 15:16 刚写下的「确定性绕法」：两条路各自都会抽。§9 第 2 条二次改写，改成「换路 + 必须带 `http.lowSpeedTime` 超时」，并补记遗留了一个 15:28Z 起没返回的 `git-remote-https` |
 | 15:16:14 → 15:18:04 | run `36882901568`（`d2f5420`，纯文档）三 job success | checks 15:16:14→15:16:38、smoke 15:16:40→15:17:30、publish 15:17:35→15:18:04，deployment `27ce420b`；只动 DEPLOYMENT.md，产物内容不变 |
 | 15:20 → 15:21 | ✅ 复验「新部署不会把 beacon 带回来」+ 线上 smoke 再全绿 | 三 host 1904 B / 零 `data-cf-beacon` / HTML 第三方 URL 数 0 / CSP 与 9 项安全头原样；分离 worktree 里跑 `--url=…pages.dev`，构建号 `d2f5420f-20261001151631`、18 步 196 条断言 0 红、33 个请求全 GET |
 
