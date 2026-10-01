@@ -301,7 +301,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 
 - `src/App.jsx` 只做三件事：装配 `useBooks` / `useBackupFolder` / `useBookData` / `useBookTransfer`、用 `activeBook.settings.language` 包住 `I18nProvider`、决定"现在该画哪一个屏"。渲染门顺序是硬性的：**不支持 IDB → 书目加载中（含零本书时自举默认簿）→ 本书数据加载中 → `Workspace`**。后两道门缺一不可，它们就是 §11 I24 那条"换书必然重挂载"的实现。"没有 book"已经不再是其中一道门——空的 `books` store 会在 `useBooks` 里被就地补成一本默认簿，所以 `!activeBook` 只剩一种可能：连自举都失败（配额耗尽 / 隐私模式 / IDB 被别的标签页阻塞），那一屏因此是纯错误屏 + 一个「重试」按钮。
 - `src/components/Workspace.jsx` 是**唯一的页面级组件**，也是 UI 态的所有者（选中日期、日/周视图、视口槽位、弹窗开关、右键剪贴板、回放 `preview`）。它对下压一个 `guardWrite(fn)`：所有写动作先过这道闸，`readOnly`（回放中）**或**已失去单写者身份时统一 toast 拒绝——因此"只读"不需要在每个组件里各写一遍。
-- 顶栏 `Header.jsx` 一共六个元素：EventBook 下拉、标题、"数据在本机"徽章、历史、模板、语言。凡是以"这本簿"为主语的动作都收进那个下拉——切换 / 新建 / 簿设置 / 导出此簿 / 删除此簿，外加「数据与备份」段的**导出全部簿**与**导入为新的 EventBook**（这两项原先是挂在顶栏右侧的按钮）。语言按钮写的是**当前这本书**的设置（§7.2），不是全局偏好。
+- 顶栏 `Header.jsx` 一共七个元素：EventBook 下拉、标题、"数据在本机"徽章、历史、模板、语言、使用帮助。凡是以"这本簿"为主语的动作都收进那个下拉——切换 / 新建 / 簿设置 / 导出此簿 / 删除此簿，外加「数据与备份」段的**导出全部簿**与**导入为新的 EventBook**（这两项原先是挂在顶栏右侧的按钮）。语言按钮写的是**当前这本书**的设置（§7.2），不是全局偏好。「❓ 使用帮助」排在语言下拉之后（按钮组最后一个），打开 §6.6 的只读指南弹窗——它是顶栏唯一**不读 `locked`** 的按钮：只读态里查说明反而更要紧。
 - 下拉里的"导入"不自己持有 `<input type="file">`：`Dropdown` 一关就连 children 一起卸载，input 若写在面板里，菜单关掉之后 change 事件无处落地，症状正是"点了导入没反应"。所以 input 常驻 header 根节点（`display: none`），菜单项只调 `ref.click()`。这条不变量记在 §11 I29，`smoke` 第 15 步同时断言"关菜单后 input 仍在"与"input 不在菜单面板内"。
 
 ### 6.6 单本设置、历史面板与零本书自举
@@ -310,7 +310,8 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 - `WeekStartPicker.jsx` 把抽象的 `weekStartsOn` 变成**预览**：选中任一日起点，立刻显示这本书的周范围与周号（`getWeekRange` / `weekNumber`），让 §3.3 的口径在改之前就被看见。
 - `HistoryPanel.jsx` 是需求 ③ 的界面：一行一个历史版本（时间取 `snapshots` 索引，不含 payload），带 reason 中文标签、体积合计（`snapshotStats`）、配额占比（`estimateUsage`）、「立即存档」，以及"查看此版本 / 恢复到此版本"。点击某行 = 进出回放；恢复是**行内两段式确认**（`restoreId` 命中才出现"确认恢复"），避免整页 `confirm` 打断。工具栏里的**镜像块**（容器 `data-mirror-state` = `on` / `permission` / `off` / `unsupported`，控件 `data-action="mirror-pick|mirror-grant|mirror-reselect|mirror-forget|mirror-interval|mirror-open|mirror-view-refresh|mirror-view-close|mirror-resync"`）是 §5 那条镜像链的唯一入口，但**正文只有一行状态**：落盘路径挂在标题的 `title`（`data-hint="path"`）上，每个按钮到底做了什么写在各自的 `title` 里，`on` 态额外给一行「自动镜像」节奏下拉（`meta.mirrorIntervalMinutes`，默认 10 分钟）。选择 / 授权之后立刻 `onMirrorAll()` 补齐整条链；`unsupported` 时一个按钮都不给，只让用户走导出。`on` 态那个「📂 查看镜像文件夹」（`mirror-open`，带 `aria-expanded`）展开 `MirrorFolderView.jsx`（容器 `data-mirror-view`）：只读列举磁盘上的文件名，底部挂着折叠起来的 `mirror-resync`；收起即整个卸载，关掉历史面板时展开状态也归零。工具栏第一行是「💾 立即存档」+「⬇️ 导出全部」（`data-action="export-all"`）：后者**与镜像能力无关**，是不支持 File System Access 的浏览器（Firefox / Safari）的兜底通路，放在镜像块容器之外，与菜单里的「导出全部簿」共用同一个 `handleExportAll`。
 - **零本书自举**：`useBooks` 挂载时若 `listBooks()` 返回空（全新浏览器 / 清了站点数据 / 换设备三种场景），就在同一个 effect 里建一本默认簿再把界面画出来，界面上从来没有"引导页"这个状态，`loading` 也一路盖到创建完成，不闪空屏。默认簿由 `storage/books.js` 的 `makeDefaultBook()` 给出：id 固定 `default-book`、书名取 `book.defaultName`（`默认` / `Default` / `デフォルト`），其余默认值全部复用 `makeBook` 那一条实现，所以 `settings.language` = 当下语言、`weekStartsOn` = `LANG_WEEK_START[lang]`（zh/ja=1、en=0）、时间轴 `0-144`、`statsScope='week'`。三处细节是刻意的：**语言取 `resolveInitialLang(null)`**（localStorage 缓存 > 浏览器语言，与 `I18nProvider` 首帧同源，不会出现「书名 `Default`、界面中文」的错位）；**id 固定**是多标签页并发冷启动的答案——两个页签 `put` 的是同一个 key，库里永远只有一本，`data` 行也按同一个 id 附着，不会分裂成两本默认簿；**书名在创建瞬间写死**，之后改这本书的语言不会把名字换掉。自举同时写一条空的 `data` 行（这一写 `rev` 从 0 变 1；首屏挂载后 `useEvents`/`useTemplates` 各自把空数组重新 setState 一次，500ms 防抖到期会合并成一次「空内容重写」把 `rev` 顶到 2，这是每本书都一样的既有行为，所以测试只断言 `rev >= 1` 而不断言写次数）。删除最后一本书的护栏（`books.length <= 1` 时「🗑 删除此簿」置灰）保持不变，因此不会陷入"删完又立刻冒出一本默认簿"的怪圈。
-- 三个组件上的 `data-*`（`data-action` / `data-snap`）是 `npm run smoke` 的定位锚点，**改 UI 时不要顺手删**。
+- `HelpDialog.jsx` 是顶栏「❓ 使用帮助」打开的**纯只读**使用指南：八个固定小节（第一次打开 / 记一件事 / 改时间与复制粘贴 / 日历·日周视图·统计 / EventBook 与导入导出 / 历史版本与备份 / 数据在哪与隐私边界 / 常见问题）+ 一行目录 chip 跳节 + `Escape` 或 ✕ 关闭，内容全部来自字典，组件里没有本地 state，所以切换界面语言时正文立刻跟着换。小节顺序住在组件的 `SECTION_ORDER` 常量里（`sections` 是无序对象，字典比不了顺序）；正文是每节一个字符串数组，渲染成 `· ` 开头的列表。它不开 `guardWrite`、不碰任何 store，因此 `Workspace` 只用一个 `showHelp` state 挂着它。
+- 四个组件上的 `data-*`（`data-action` / `data-snap` / `data-mirror-state` / `data-help-*`）是 `npm run smoke` 的定位锚点，**改 UI 时不要顺手删**。
 
 ---
 
@@ -414,7 +415,7 @@ npm run check             # 串起下面 9 项，任一失败退出码 1
   imports:check           #   React 具名 API 是否都显式 import（46 文件 × 24 API）
 
 npm run csp:check         # index.html 内联脚本的 sha256 是否与 public/_headers 一致
-npm run smoke             # 无头 Chrome 端到端 17 步（详见 README）
+npm run smoke             # 无头 Chrome 端到端 18 步（详见 README）
 npm run icons             # 从 favicon.svg 生成 4 档 PWA 图标
 npm run deploy            # build → csp:check → wrangler pages deploy dist --project-name=daily-event-logger
                           #   → 线上：https://daily-event-logger.com（Pages 项目绑定的自定义域名）
@@ -446,7 +447,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 发布到公网有两条路，两条都要过同一条校验链（`build` → `csp:check`）：
 
 - **本机直发**：`npx wrangler login` 一次，然后 `npm run deploy`。凭证只留在本机（`.wrangler/state`，已 gitignore）。
-- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（9 项不变量 + build + csp:check，阻断）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 17 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
+- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（9 项不变量 + build + csp:check，阻断）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 18 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
 
 Actions 需要三个仓库级配置（Settings → Secrets and variables → Actions）：secret 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，加上变量的 `DEPLOY_ENABLED`。`deploy` job 的条件是 `github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true'` —— **变量缺失或值不是字符串 `true` 时，workflow 照样检查和构建，但线上一个字节都不会变**，这就是发布总闸（job 级 `if` 读不到 `env` 上下文，所以分支名在 `if` 里写成字面量，改默认分支要同时改 `env.PRODUCTION_BRANCH` 与那行 `if`）。Pages 项目由 workflow 首次 `wrangler pages project create` 自动创建，已存在则跳过。
 
@@ -476,7 +477,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I14 | 剪贴板是瞬时内存态，绝不进 payload / 快照 / `localStorage`；粘贴不得引入新重叠（`cut` 用 `ignoreId` 排除自己） | `Workspace.clipboard` state + `hasOverlap` 前置判定 |
 | I15 | 移动结果必须整条落在目标日某个空档内、时长不变；放不下就**不写盘** | `dayDrop.freeWindowsForDay` + `clampMoveToFreeWindow`；`daydrop:check` §2/§4 |
 | I16 | 跨日期目标恒为**当前可见列**之一；`onMoveEvent` 未带非空 `dateStr` 时绝不写 `date` 键 | `columnIndexOfX` + `visibleDateStrs` + `Workspace.handleMoveEvent` |
-| I17 | **服务器永不写用户数据**：全站只有 GET，唯一读接口是只读的 `GET /api/legacy-data`（已无前端调用方，仅留给开发机手工核对） | 架构上没有任何写接口；`smoke` 第 7/17 步逐条断言方法、请求体、跨域、URL 内容泄露，并断言磁盘上的旧 `data.json` 一个字节都没被动过 |
+| I17 | **服务器永不写用户数据**：全站只有 GET，唯一读接口是只读的 `GET /api/legacy-data`（已无前端调用方，仅留给开发机手工核对） | 架构上没有任何写接口；`smoke` 第 7/18 步逐条断言方法、请求体、跨域、URL 内容泄露，并断言磁盘上的旧 `data.json` 一个字节都没被动过 |
 | I18 | 任何 IndexedDB 读写必须经 hooks；组件只允许 import storage 层的**纯函数与常量**。`indexedDB.open` 全站只出现在 `storage/idb.js` | §4.2 人工约束 + `grep -r "indexedDB" src`；`book:check` 只测纯逻辑即成立 |
 | I19 | LOAD 未 apply 完成前禁止落盘（挡住"挂载首帧的空写"）。`rev` 单调递增**不能**当作"写成功"的证据 | `useBookData.loadedRef`（`scheduleSave`/`flushSave` 双守）；`smoke` 第 6/10 步断言编辑真的进了 IDB |
 | I20 | `weekStartsOn` 只能来自当前 book；归一化入口只有 `normalizeWeekStart` / `normalizeSettings` | `week:check`（15372 组周窗口 + 2196 组 ISO 周号 + 3 种语言 × 7 种起点的月历表头列对齐）；`smoke` 第 4/13/14 步 |
@@ -490,10 +491,11 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I28 | 页面必须自报构建号：`<html data-build>` 由 `main.jsx` 写入，格式固定 `(sha8|dev)-yyyymmddHHMMSS[+]`，源码只经 `src/buildInfo.js` 读取 | `smoke` 第 1 步按格式断言；设置对话框页脚 `data-build` 肉眼可查 |
 | I29 | 导出 / 导入的**入口**在 EventBook 菜单里，但承载文件的 `<input type="file">` **必须常驻 header 根节点**（下拉一关就卸载 children，跟着卸载的 input 会让"导入"点了没反应）；同一只下拉必须整体键盘可达：触发器 `role=button` + `tabIndex=0` + `aria-expanded`，面板 `role=menu`，项 `role=menuitem` 且可聚焦 | `Header.jsx` 的 `pickImportFile()` 与根节点 input；`smoke` 第 15 步断言 `inputMounted`、`inputInsideMenu === false`、`tabbable === items.length`、`triggers >= 1` |
 | I30 | 文件夹镜像严格**单向**：只写不读，断开不删磁盘副本；换文件夹 / 重新授权之后必须把**整条链**回补一遍（`resyncTree`），否则新目录里只有此后新增的几份；`useBackupFolder` 的写路径一律读 `stateRef`，UI 判断"能不能镜像"用 `canMirror()` 而不是 `backup.active` | `folderBackup.resyncTree` + `useBackupFolder.guard/canMirror`；`book:check` §9（假句柄跑通 manifest / latest / 快照 / 幂等 / 空输入）；`smoke` 第 16 步断言 `data-mirror-state` 契约与按钮可见性 |
-| I31 | 「导出全部」有**两个入口**（EventBook 菜单 + 历史面板工具栏），但只有**一条实现**：都走 `Workspace.handleExportAll` → `transfer.exportAll()`，不复制第二份导出逻辑；历史面板那个按钮（`data-action="export-all"`）必须待在 `data-mirror-state` 容器**之外**——它不依赖 File System Access，在不支持镜像的浏览器里是唯一兜底 | `HistoryPanel.jsx` 的 `toolRowStyle` 行；`smoke` 第 16 步断言 `outside === true`、`disabled === false`、`title` 非空、文案等于 `en.history.exportAll`、顶栏按钮数仍为 2 |
+| I31 | 「导出全部」有**两个入口**（EventBook 菜单 + 历史面板工具栏），但只有**一条实现**：都走 `Workspace.handleExportAll` → `transfer.exportAll()`，不复制第二份导出逻辑；历史面板那个按钮（`data-action="export-all"`）必须待在 `data-mirror-state` 容器**之外**——它不依赖 File System Access，在不支持镜像的浏览器里是唯一兜底 | `HistoryPanel.jsx` 的 `toolRowStyle` 行；`smoke` 第 16 步断言 `outside === true`、`disabled === false`、`title` 非空、文案等于 `en.history.exportAll`、顶栏按钮数仍为 3 |
 | I32 | 自动镜像节奏是**设备级设置**（`meta.mirrorIntervalMinutes`），只影响 `latest.json` 的写频，**绝不**改变 §5 那条 15 分钟快照节奏，也不影响 `snapshots/*.json` 随每次存档落盘；档位表固定 1/5/10/15/30/60、默认 10，脏值（0 / 负数 / 空 / 文本 / 超范围）一律归到最近档位；`syncLatest` 读 `intervalRef` 而不是闭包 state，改节奏必须 `resetLatestStamps()` 清窗口，「立即存档」与「重新镜像全部版本」走 `{ force: true }` 不受节流限制。镜像块的详细说明一律待在 tooltip 里，正文只留一行状态 | `folderBackup.normalizeMirrorInterval` / `getMirrorInterval` / `setMirrorInterval` + `useBackupFolder.setIntervalMin`；`book:check` §10（默认 10、脏值归档、窗口内跳过且磁盘文件没变、窗口外重写、force 穿透、清窗口后立刻可写）；`smoke` 第 16 步断言正文不含 `ROOT_DIR_NAME` 与版本链说明、标题 `title` 含三个路径常量、每个 `[data-action]` 都带 `title`、节奏下拉只在 `on` 态出现 |
 | I33 | 镜像块正文只放「这个状态现在需要什么」：低频的整链重推必须待在「查看镜像文件夹」面板里，不占正文；「查看」是**只读列举** —— 只用 `getDirectoryHandle(create: false)` / `dir.entries()`，零创建、零写入、零打开文件内容，读到的东西只显示、绝不回填应用状态或当恢复来源；网页也唤不起资源管理器，因此**绝不**为了"打开文件夹"新增后端端点（那会同时破掉第 12 节的"零非 GET 请求 / 用户内容不进 URL / 服务器不存数据"） | `MirrorFolderView.jsx` + `folderBackup.listMirrorTree`；`book:check` 第 11 节（列举前后磁盘文件树完全一致、零 `create:true`、零 `getFileHandle`、limit 截断与脏值回落、缺目录降级成"还没写过副本"、异常吞掉不抛）；`smoke` 第 16 步断言正文无 `mirror-resync` / 展开后才有 / 收起后再消失、`aria-expanded` 与文案同步、每个控件都有 `title`、已连接那一行不会自相矛盾地写"未连接"、伪造句柄 + 两次重载零 JS 异常 |
 | I34 | `listBooks()` 读到空目录就**必须在同一个挂载周期内自举**一本 `id=default-book` 的本地化默认簿（书名 `book.defaultName`、语言取 `resolveInitialLang(null)`），界面里不存在"首启引导"这一屏；自举用的 id 固定，因此两个标签页并发冷启动也只会 `put` 同一行 | `useBooks.seedDefaultBook` + `storage/books.js` `makeDefaultBook`；`book:check` §4b（三语书名 / 非法或缺省语言回退 en / `weekStartsOn` / 时间轴 0-144 / `statsScope` / 同 `nowMs` 幂等）；`smoke` 第 2/3 步（首屏即周视图、IDB 里那本 `default-book` 的形状、改名后仍只有一本）与第 14 步（重载不再多出一本） |
+| I35 | 顶栏「❓ 使用帮助」是**只读内容入口**：`HelpDialog` 不经 `guardWrite`、不写任何 store，按钮**永不因 `locked` 置灰**（回放历史版本 / 他页正在编辑时照样能查说明）；八节正文只住在三份字典的 `help.sections`，顺序住在组件里 | `Header.jsx` 的帮助按钮不读 `locked`；`smoke` 第 17 步断言顶栏三个按钮、八节 + 八个目录 chip、标题与逐节正文等于字典、切 zh 后正文换语言、`Escape` 与 ✕ 都关得掉；三语齐平由 `i18n:check` 守（`help` 段 50 键 × 3，字典文案禁含字面 `{` `}`） |
 
 ---
 
@@ -508,7 +510,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | CSP 哈希与内联脚本必须同步 | `index.html` / `public/_headers` | 忘了改 → 线上首帧白屏。本地 `npm start` 与 `vite dev` **都不发 CSP 头**，"本地能跑"不代表线上放行 | `npm run csp:check` 已串进 `npm run deploy`；I25 |
 | 安全头与托管商耦合 | `public/_headers` | Cloudflare Pages 专用格式。换 Netlify / nginx / OSS 要手动翻译等价配置 | README「部署前必读」已标注 |
 | PWA 发版有"旧壳"窗口 | `vite.config.js` | 预缓存 shell + `autoUpdate`。产物名带 hash 所以 `immutable` 长缓存安全，但 `injectRegister: 'script'` 会让 vite-plugin-pwa **不再**自动打开 `skipWaiting`/`clientsClaim`（它只在 `injectRegister` 为 `auto`/`null` 时才打开），新 SW 只能等所有标签页关完才激活 —— 于是"重新打开一次"看到的仍可能是旧构建，表现得像修复没生效。这里刻意不开 `skipWaiting`：`StatsPanel` 是懒加载分包，提前激活会触发 `cleanupOutdatedCaches` 删掉旧页面包，正在用的标签页再点统计就会 404 | 每个构建带 `BUILD_ID`（`<html data-build>`、设置对话框页脚、`smoke` 第 1 步），先确认加载到哪一版再判断修复是否生效；急时在控制台执行 `navigator.serviceWorker.getRegistration().then(r => r && r.unregister()).then(() => location.reload())`（只丢 shell 缓存，IndexedDB 数据不动）；改完前端必须 `npm run build` 才算发布 |
-| 旧 `data.json` 的一键迁移入口已随引导页移除 | `src/utils/legacyFetch.js`、`src/components/FirstRunGuide.jsx`（两个文件已删） | 迁移能力没丢：v1 信封仍被 `detectEnvelope` / `booksFromEnvelope` 认出，走 EventBook 菜单「📥 导入为新的 EventBook」选文件即可；`/api/legacy-data` 变成没有调用方的开发机接口 | 导入永远是新增簿、不覆盖已有簿（`planImport` 防撞）；`smoke` 第 7/17 步断言磁盘上的 `data.json` 没被动过 |
+| 旧 `data.json` 的一键迁移入口已随引导页移除 | `src/utils/legacyFetch.js`、`src/components/FirstRunGuide.jsx`（两个文件已删） | 迁移能力没丢：v1 信封仍被 `detectEnvelope` / `booksFromEnvelope` 认出，走 EventBook 菜单「📥 导入为新的 EventBook」选文件即可；`/api/legacy-data` 变成没有调用方的开发机接口 | 导入永远是新增簿、不覆盖已有簿（`planImport` 防撞）；`smoke` 第 7/18 步断言磁盘上的 `data.json` 没被动过 |
 | 原生 `alert` / `confirm` 残留 | `EventDialog.jsx:146,147,153`、`TemplateManager.jsx:71,83,132`、`Workspace.jsx:197,234` | 与自研 `Toast` / 对话框体系脱节。**`Workspace.jsx:234` 是删除 EventBook 的确认**，语义最重，要改优先改这一处 | 已知未修 |
 | 回放是"整站只读"而非差异对比 | `Workspace.readOnly` | 看不到"这一版和当前版差在哪"，只能整站回看。做 diff 要新增一层结构，当前判定不值 | — |
 | 多标签页是"后开始编辑者胜出" | `storage/bus.js` | 单写者锁让并发覆盖在结构上不存在，但**不弹"另一页刚改过"的提醒**；只读页收到 `rev` 才刷新。同一个人开两页时可能困惑 | UI 常驻"只读 · 接管编辑"入口 |
@@ -531,9 +533,10 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
   跨标签页单写者锁（BroadcastChannel + rev）：把"整包写无乐观锁"从"已知不修"升级为"结构上不存在"
   镜像文件夹（File System Access API，只写不读）—— 强烈建议开启
   PWA 离线 + 最紧 CSP（全同源 + 内联脚本 sha256）+ csp:check / imports:check
-  week:check / snapshot:check / book:check 三套新断言 + 17 步无头端到端 smoke
+  week:check / snapshot:check / book:check 三套新断言 + 18 步无头端到端 smoke
   发布路径：Cloudflare Pages（npm run deploy）；server.js 退化为"只发静态 + 只读 legacy 探测"
   顶栏 EventBook 切换与设置弹窗；历史面板 HistoryPanel；零本书时自举「默认」簿（首启引导页后来被它替掉）
+  顶栏「❓ 使用帮助」→ HelpDialog 只读内置指南（八节，三语文案住字典，不参与 locked 置灰）
 ```
 
 系统并非一次成型，而是围绕**四个早期锚点**长出来的：**slot 时间模型**、**纯函数业务层**、**单一 payload 文档**、**hooks 独占 I/O**。前两个从初版就成立；后两个在初版表现为"一个 `data.json` + 一个 `usePersistentData`"，本轮把它们换成了"IndexedDB 里 `data` store 的一行 + `useBookData`"——**换的只是存放处和搬运工，形状没变**，所以 i18n、排序引擎、缩放、剪贴板、跨日期拖动这些既有功能在迁移中一行业务规则都不用改。这也是"服务器零存储"能在一轮里做完的真正原因：需要重写的只有 I/O 边界那一层。
@@ -564,8 +567,8 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/App.jsx` | 123 | 组装 hooks、按 `activeBook.settings.language` 套 `I18nProvider`、渲染门（不支持 IDB / 书目加载中（含自举默认簿）/ 本书数据加载中 / `Workspace key=id`），外加自举也失败时的错误屏 + 「重试」 |
 | `src/main.jsx` | 16 | 挂载点 + 把 `BUILD_ID` 写进 `<html data-build>` |
 | `src/buildInfo.js` | 4 | 构建号的唯一出口（`__BUILD_ID__` 由 vite `define` 替换，缺值时退成 `unknown`） |
-| `src/components/Workspace.jsx` | 389 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）+ 三个 `data-*` 测试锚点 |
-| `src/components/Header.jsx` | 190 | EventBook 下拉（切换 / 新建 / 簿设置 / 导出此簿 / 数据与备份：导出全部簿 + 导入为新簿 / 删除此簿）+ 常驻的隐藏 file input、语言、历史、模板 |
+| `src/components/Workspace.jsx` | 393 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）+ 三个 `data-*` 测试锚点 |
+| `src/components/Header.jsx` | 192 | EventBook 下拉（切换 / 新建 / 簿设置 / 导出此簿 / 数据与备份：导出全部簿 + 导入为新簿 / 删除此簿）+ 常驻的隐藏 file input、语言、历史、模板、使用帮助 |
 | `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
 | `src/components/EventDialog.jsx` | 271 | 事件新建/编辑、冲突提示、模板选择与热度、存为模板 |
 | `src/components/StatsPanel.jsx` | 230 | 类别饼图、堆叠柱、排行榜（recharts，懒加载分包） |
@@ -574,6 +577,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/components/Calendar.jsx` | 146 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
 | `src/components/TemplateManager.jsx` | 144 | 模板增删改 + 排序 |
 | `src/components/BookSettingsDialog.jsx` | 85 | 单本设置：书名、周开始日、语言、视口、统计档位 |
+| `src/components/HelpDialog.jsx` | 118 | 只读使用指南：八个小节 + 目录 chip + `Escape`，正文全在字典 `help.sections`（顺序在组件里） |
 | `src/components/ContextMenu.jsx` | 83 | 自研右键菜单（fixed 定位 + 视口内翻转 + 置灰项） |
 | `src/components/TemplateSortControl.jsx` | 45 | 排序分段控件（两个弹窗共用） |
 | `src/components/WeekStartPicker.jsx` | 37 | 周开始日选择器（同时预览"这本书的本周"范围，把设置变成看得见的东西） |
@@ -624,14 +628,14 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
 | `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
 | `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
-| `src/i18n/locales/{zh,en,ja}.js` | 229 × 3（210 键） | 三语文案，`zh` 为源语言 |
+| `src/i18n/locales/{zh,en,ja}.js` | 315 × 3（260 键） | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
 ### `scripts/`（lint 级 CI）
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 1178 | **真浏览器 17 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→收尾零存储复核 |
+| `scripts/e2e-smoke.mjs` | 1257 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗（顶栏入口 / 八节 / 目录跳节真的滚起来 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
 | `scripts/check-book-store.mjs` | 455 | 设置守门、书名与文件名清洗、零本书自举的默认簿（三语书名 / 固定 id / 默认值与 `makeBook` 同源 / 非法语言回退 / 幂等）、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流、查看面板的只读列举（零创建零写入、截断与脏 limit、缺目录与异常降级） |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |
