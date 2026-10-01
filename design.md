@@ -645,6 +645,6 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `scripts/check-day-drop.mjs` | 201 | 跨日期落点 + 12960 组扫描 |
 | `scripts/check-slot-range.mjs` | 133 | 边缘缩放 + 2040 组扫描 |
 | `scripts/check-event-clipboard.mjs` | 107 | 剪贴板规则 + 62640 组扫描 |
-| `scripts/check-template-sort.mjs` | 141 | 排序引擎 ~70 条确定性断言 |
+| `scripts/check-template-sort.mjs` | 144 | 排序引擎 ~70 条确定性断言；基准时钟只取一次（断言不许重算 fixture 的期望时间戳） |
 | `scripts/check-i18n.mjs` | 72 | 三语键集合与占位符一致性 |
 | `scripts/make-icons.mjs` | 158 | 从 `favicon.svg` 生成 4 档 PWA 图标（无 sharp，自实现 PNG 编码） |

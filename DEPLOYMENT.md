@@ -432,7 +432,7 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
 - **影响面**：只有这台企业机。手机热点或等域名被重新分类就好。
 - **可选缓解**：在网关提示页点 Continue 放行一次；请 IT 加白；或者干脆不在本机打线上（验收以 CI 为准）。
 
-顺带三条同类经验（都是「本机网络 / 本地秒开 vs 真实用户视角」的坑）：
+顺带四条同类经验（前三条是「本机网络 / 本地秒开 vs 真实用户视角」，第 4 条是「本机跑一千遍都绿、CI 上偶发红」）：
 
 1. 本机 `curl.exe` 会报 schannel `CRYPT_E_REVOCATION_OFFLINE`（吊销列表取不到），而 node `fetch` 正常。
    **验证一律用 node**，别在 curl 上浪费时间。
@@ -450,6 +450,12 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
    现在等待条件统一过 `ready()`（`{ err }` 判为未就绪），并且等 `body` 出现、等 `#root` 真挂上才打启动诊断。
    顺带一条：这条 Zscaler 拦截**时通时不通**，同一台机器连着打两次线上，可能一次跑完 18 步、另一次在第 1 步就
    停在 `C03 Are you sure...` 的拦截页上——后者红的是网络环境，别当成回归。
+4. 不变量检查里的**毫秒边界**抖动（14:18 那条纯文档提交就是这么红的）：`scripts/check-template-sort.mjs`
+   的 `ago(days)` 每次调用都读一遍 `Date.now()`，而断言写成 `eq(..., merged.createdAt, ago(60))` —— 拿
+   「建 fixture 时算出的串」和「跑断言时重算的串」比字符串。本机通常在同一毫秒内跑完，永远相等；CI 上两次
+   调用跨到下一毫秒就固定差 1ms，于是报「导入合并不伪造 createdAt / updatedAt」——和提交内容毫无关系。
+   修法：基准时钟只取一次（`const NOW = Date.now()`），改完连打 40 遍 0 红。**判据**：断言里凡是在重算
+   fixture 的期望值，就不许再读当前时间；比时间戳一律用「同一份常量」或允许误差的 `Math.abs(...) < n`。
 
 ---
 
@@ -590,6 +596,8 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 14:12 | 线上换上新 bundle `index-BXH9qyKy.js` / 316083 B | apex / www / pages.dev 三 host 同一份；三语新文案（`这是一个记录你的工作` / `Before you start logging` / `ローカルフォルダーにミラー`）与 `data-help-top`、`data-help-warn-title` 两个新锚点都在产物里 |
 | 14:12 | 别拿 bundle 文件名比本机与 CI | 同一份源码本机 build 出 `index-D7hNtOyy.js` / 316084 B：index chunk 里内嵌懒加载 `StatsPanel-*.js` 的哈希，跨环境不稳定。要比的是内容（grep 文案与 `data-*` 锚点），不是文件名 |
 | 14:14 → 14:15 | 线上 smoke：第 17 步 7 条新断言全过，10 条红全是同一个根因 | 开头两段介绍、备份提醒排在目录之前、en/zh 逐字等于字典——都在真实线上产物上通过；10 条红全部指向 §8.4 那个按 zone 自动注入的 `beacon.min.js` 被自家 CSP 拦下（零第三方 / 零跨域 / 零 JS 异常），与本轮改动无关，关掉自动注入并重发一次部署才会消失 |
+| 14:17 → 14:18 | run `36875325960`（`ed326e3`，纯文档）checks + build **偶发红** | 撞上面第 4 条那个毫秒边界；smoke / publish 两个 job 因此 `skipped`，线上产物没动（仍是 `71b3ef6` 那一版） |
+| 14:20 → 14:22 | `check-template-sort.mjs` 冻结基准时钟（141 → 144 行） | 只动测试脚本，改完连打 40 遍 0 红；design.md 文件索引里的行数与判据同步 |
 
 ---
 

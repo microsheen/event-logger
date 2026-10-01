@@ -28,8 +28,11 @@ function sorted(templates, options) {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
+// 基准时钟只取一次。之前每次 ago() 都读 Date.now()，而断言里会再算一次 ago(n) 去比字符串，
+// 两次调用跨到下一毫秒就必然差 1ms（CI 上「导入合并不伪造 createdAt」因此偶发报红）。
+const NOW = Date.now();
 function ago(days) {
-  return new Date(Date.now() - days * DAY).toISOString();
+  return new Date(NOW - days * DAY).toISOString();
 }
 
 // —— 1. 默认 = 插入顺序，且不受方向影响 ——
