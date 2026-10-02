@@ -135,3 +135,14 @@ export async function requestPersistence() {
     return false;
   }
 }
+
+// 只读地问一句「浏览器是否已经承诺保住这块存储」。申请（persist()）是 useBookData 的活儿，
+// 这里绝不申请：帮助面板只是想如实报告状态，弹权限语义的调用不该藏在一个只读入口里。
+export async function isPersisted() {
+  if (typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.persisted) return null;
+  try {
+    return await navigator.storage.persisted();
+  } catch (err) {
+    return null;
+  }
+}

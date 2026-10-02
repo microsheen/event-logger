@@ -111,7 +111,7 @@ function MenuItem({ children, onClick, disabled }) {
 
 export default function Header({
   book, books, onSelectBook, onCreateBook, onOpenBookSettings, onDeleteBook,
-  onExportBook, onExportAll, onImportFile, onOpenTemplates, onOpenHistory, onOpenHelp, historyCount, locked,
+  onExportBook, onExportAll, onImportFile, onOpenTemplates, onOpenHistory, onOpenHelp, onOpenContact, historyCount, locked,
 }) {
   const { lang, setLanguage, tr } = useI18n();
   const fileRef = useRef(null);
@@ -184,7 +184,9 @@ export default function Header({
         >
           {LANGS.map((l) => (<option key={l.code} value={l.code}>🌐 {l.name}</option>))}
         </select>
-        {/* 使用帮助是纯只读的内容入口：刻意不读 locked，回放历史或他页编辑时也要能查说明 */}
+        {/* 反馈是找人的路，不是改数据的手：面板里只拼两枚 <a> 的 href，所以也不读 locked */}
+        <HoverButton onClick={onOpenContact} title={tr('contact.entryTip')}>{tr('contact.entry')}</HoverButton>
+        {/* 使用帮助与反馈都是只读入口：刻意不读 locked，回放历史或他页编辑时也要能查说明、能提问题 */}
         <HoverButton onClick={onOpenHelp} title={tr('help.entryTip')}>{tr('help.entry')}</HoverButton>
       </div>
     </header>

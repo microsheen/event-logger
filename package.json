@@ -24,10 +24,11 @@
     "week:check": "node scripts/check-week-start.mjs",
     "snapshot:check": "node scripts/check-snapshot-policy.mjs",
     "book:check": "node scripts/check-book-store.mjs",
+    "contact:check": "node scripts/check-contact.mjs",
     "csp:check": "node scripts/check-csp-hash.mjs",
     "imports:check": "node scripts/check-react-imports.mjs",
     "smoke": "node scripts/e2e-smoke.mjs",
-    "check": "npm run i18n:check && npm run sort:check && npm run slotrange:check && npm run clipboard:check && npm run desc:check && npm run daydrop:check && npm run week:check && npm run snapshot:check && npm run book:check && npm run imports:check",
+    "check": "npm run i18n:check && npm run sort:check && npm run slotrange:check && npm run clipboard:check && npm run desc:check && npm run daydrop:check && npm run week:check && npm run snapshot:check && npm run book:check && npm run contact:check && npm run imports:check",
     "deploy": "npm run build && npm run csp:check && wrangler pages deploy dist --project-name=daily-event-logger"
   },
   "dependencies": {

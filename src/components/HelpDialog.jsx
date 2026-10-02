@@ -67,7 +67,8 @@ const footStyle = {
   textAlign: 'center', flexShrink: 0,
 };
 
-// 纯只读的使用指南：不写任何数据，所以顶栏那个入口在只读态（回放历史 / 他页编辑）里也必须能点。
+// 只读的使用指南：一个字都不写、也不对外发送任何东西，所以顶栏那个入口在只读态（回放历史 / 他页编辑）
+// 里也必须能点。反馈与联系已整体搬出本面板，另有顶栏独立入口，见 ContactDialog.jsx。
 export default function HelpDialog({ open, onClose }) {
   const { tr } = useI18n();
   const sectionRefs = useRef({});

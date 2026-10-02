@@ -450,6 +450,7 @@ const { REASONS, PROTECTED_REASONS, MAX_SNAPSHOTS } = await import('../src/stora
 const { DB_NAME, DB_VERSION } = await import('../src/storage/idb.js');
 const { DEFAULT_BOOK_ID, LANG_WEEK_START, defaultBookName } = await import('../src/storage/books.js');
 const { slotRangeLabel } = await import('../src/utils/time.js');
+const { CONTACT_EMAIL, REPO_ISSUES_URL, DIAG_FIELD_NAMES } = await import('../src/utils/contact.js');
 let BOOKS1 = null;
 let TODAY_STR = null;
 let BASE = null;
@@ -1087,7 +1088,7 @@ await step('顶栏瘦身：导出/导入并入 EventBook 菜单，且 file input
   assert('簿设置 / 删除此簿仍在原位', m.items.indexOf(en.book.settings) >= 0 && m.items.indexOf(en.book.remove) >= 0, JSON.stringify(m.items));
   assert('每个菜单项都能键盘聚焦', m.tabbable === m.items.length, m.tabbable + '/' + m.items.length);
   assert('簿切换器本身可键盘打开', m.triggers >= 1, String(m.triggers));
-  assert('顶栏是历史 / 模板 / 帮助三个按钮（帮助是只读入口）', m.headerButtons === 3, String(m.headerButtons));
+  assert('顶栏是历史 / 模板 / 反馈 / 帮助四个按钮（反馈与帮助都是只读入口）', m.headerButtons === 4, String(m.headerButtons));
   assert('隐藏的 file input 已挂载', m.inputMounted);
   assert('file input 不在菜单面板里', m.inputInsideMenu === false);
   await H.clickText('header span', '🗂', 0);
@@ -1163,7 +1164,7 @@ await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查�
   assert('它不属于镜像块（不依赖文件夹能力）', !!ea && ea.outside === true, JSON.stringify(ea));
   assert('可点且带 tooltip 说明', !!ea && ea.disabled === false && ea.hint === true, JSON.stringify(ea));
   assert('文案来自 i18n', !!ea && ea.text === en.history.exportAll, ea && ea.text);
-  assert('顶栏仍是历史 / 模板 / 帮助三个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 3, ea && String(ea.headerButtons));
+  assert('顶栏仍是历史 / 模板 / 反馈 / 帮助四个按钮（导出/导入没被搬回去）', !!ea && ea.headerButtons === 4, ea && String(ea.headerButtons));
 
   // ── 「已连接」那一档必须真渲染一遍才验得到。headless 里弹不出系统目录选择框，所以把一个
   //    纯数据句柄写进 meta 再重载：checkPermission 对「没有 queryPermission 的句柄」按 granted
@@ -1225,9 +1226,9 @@ await step('历史面板：镜像块正文一行 + 重新镜像折叠进「查�
   await closeHistory();
 });
 
-await step('使用帮助：顶栏入口 / 开头介绍与备份提醒 / 目录跳节 / 跟随语言 / Esc 关闭', async () => {
+await step('使用帮助与独立反馈面板：顶栏两枚入口 / 八个小节 / 目录跳节 / 反馈只拼 href / 跟随语言 / Esc 关闭', async () => {
   const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-  // 面板里的结构探针：一次求值读全，重渲染不会让两次读取落在不同帧上
+  // 帮助面板探针：只读指南的结构与文字。反馈已搬去独立面板，这里必须一个反馈锚点都不剩。
   const helpProbe = () => H.expr(`(() => {
     const p = document.querySelector('[data-help-dialog]');
     if (!p) return null;
@@ -1256,26 +1257,101 @@ await step('使用帮助：顶栏入口 / 开头介绍与备份提醒 / 目录�
         const n = p.querySelector('[data-help-nav]');
         return !!(w && n) && !!(w.compareDocumentPosition(n) & 4);
       })(),
+      anchors: p.querySelectorAll('a').length,
+      contactAnchors: p.querySelectorAll('[data-contact-dialog],[data-help-contact],[data-contact-email],[data-contact-mail],[data-contact-issues],[data-contact-diag]').length,
+      mailto: p.innerHTML.indexOf('mailto:') >= 0,
+      contactOpen: !!document.querySelector('[data-contact-dialog]'),
       closeBtn: !!p.querySelector('[data-action=\\'help-close\\']'),
       scrolled: scroller ? Math.round(scroller.scrollTop) : -1,
       chars: p.innerText.replace(/\\s+/g, ' ').length,
     };
   })()`);
+  // 反馈面板探针：只读结构 + 两条 href。断言里绝不点击这两枚链接 ——
+  // 点下去就是真的把草稿交给系统邮件客户端 / 真的开一个新标签，等于冒烟替用户发信。
+  const contactProbe = () => H.expr(`(() => {
+    const p = document.querySelector('[data-contact-dialog]');
+    if (!p) return null;
+    const norm = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim();
+    const one = (sel) => p.querySelector(sel);
+    const text = (sel) => { const e = one(sel); if (!e) return null; return e.tagName === 'TEXTAREA' ? e.value : norm(e.textContent); };
+    const link = (sel) => { const e = one(sel); if (!e) return null; return { href: e.getAttribute('href') || '', target: e.getAttribute('target') || '', rel: e.getAttribute('rel') || '' }; };
+    return {
+      title: p.getAttribute('aria-label'),
+      intro: text('[data-contact-intro]'),
+      paras: p.querySelectorAll('[data-contact-lines] p').length,
+      lines: Array.prototype.map.call(p.querySelectorAll('[data-contact-lines] p'), (e) => norm(e.textContent)).join(' '),
+      emailLabel: text('[data-contact-email-label]'),
+      email: text('[data-contact-email]'),
+      mail: link('[data-contact-mail]'),
+      mailLabel: text('[data-contact-mail]'),
+      issues: link('[data-contact-issues]'),
+      issuesLabel: text('[data-contact-issues]'),
+      diagLabel: text('[data-contact-diag-label]'),
+      diag: text('[data-contact-diag]'),
+      hint: text('[data-contact-hint]'),
+      li: p.querySelectorAll('li').length,
+      anchors: p.querySelectorAll('a').length,
+      helpOpen: !!document.querySelector('[data-help-dialog]'),
+      closeBtn: !!p.querySelector('[data-action=\\'contact-close\\']'),
+    };
+  })()`);
+  // 顶栏按钮的可见文案，按 DOM 顺序拼一条字符串：反馈必须在帮助之前
+  const topBar = () => H.expr(`Array.prototype.map.call(document.querySelectorAll('header button'), (b) => b.textContent.replace(/\\s+/g, ' ').trim()).join('|')`);
   const pressEscape = async () => {
     await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
   };
+  const NEEDLES = [EV_OLD, EV_NEW, EV_DESC, BOOK, BOOK2];
+  const orderOf = (bar, text) => bar.split('|').indexOf(text);
 
-  assert('顶栏帮助入口在英文界面上叫「' + en.help.entry + '」', await H.call('has', en.help.entry));
+  // —— 顶栏：反馈是独立入口，而且排在帮助之前 ——
+  const bar1 = await topBar();
+  assert('英文顶栏有「' + en.contact.entry + '」这枚按钮', await H.call('has', en.contact.entry) && orderOf(bar1, en.contact.entry) >= 0, bar1);
+  assert('反馈入口排在帮助入口之前：' + bar1, orderOf(bar1, en.contact.entry) >= 0 && orderOf(bar1, en.help.entry) > orderOf(bar1, en.contact.entry), bar1);
+
+  await H.clickText('button', en.contact.entry);
+  const c1 = await H.until('英文反馈面板打开且诊断块带上构建号', async () => {
+    const x = await contactProbe();
+    return x && x.diag && x.diag.indexOf('build=') === 0 ? x : null;
+  }, 10000);
+  assert('反馈面板标题来自 i18n：' + c1.title, c1.title === en.contact.title, String(c1.title));
+  assert('导语与四段正文都来自字典（en ' + en.contact.lines.length + ' 段）', c1.intro === norm(en.contact.intro) && c1.paras === en.contact.lines.length && c1.lines === norm(en.contact.lines.join(' ')), c1.paras + ' 段 / ' + c1.intro.slice(0, 40));
+  assert('别名、别名说明、兜底提示、关闭按钮齐备', c1.email === CONTACT_EMAIL && c1.emailLabel === norm(en.contact.emailLabel) && c1.hint === norm(en.contact.noMailHint) && c1.diagLabel === norm(en.contact.diagLabel) && c1.closeBtn === true, c1.email);
+  assert('两枚入口的文案来自字典', c1.mailLabel === norm(en.contact.mailLabel) && c1.issuesLabel === norm(en.contact.issuesLabel), c1.mailLabel + ' / ' + c1.issuesLabel);
+  assert('反馈面板只用段落排版、对外动作只有两枚 <a>', c1.li === 0 && c1.anchors === 2, 'li=' + c1.li + ' a=' + c1.anchors);
+  assert('公开展示的只有邮箱别名：' + c1.email, c1.email === CONTACT_EMAIL, String(c1.email));
+  assert('mailto 只指向别名本身，并带字典里的 subject 与 body', c1.mail.href.indexOf('mailto:' + CONTACT_EMAIL + '?') === 0 && c1.mail.href.indexOf('subject=' + encodeURIComponent(en.contact.subject)) > 0 && c1.mail.href.indexOf('body=') > 0, c1.mail.href.slice(0, 80));
+  assert('邮箱入口不加 target/rel（发信发生在页面之外）', c1.mail.target === '' && c1.mail.rel === '', c1.mail.target + ' / ' + c1.mail.rel);
+  assert('Issue 入口指向仓库 issues', c1.issues.href.indexOf(REPO_ISSUES_URL + '?') === 0, c1.issues.href.slice(0, 90));
+  assert('Issue 入口开新标签且不带 opener', c1.issues.target === '_blank' && c1.issues.rel === 'noopener noreferrer', c1.issues.target + ' / ' + c1.issues.rel);
+  const diagLines1 = c1.diag.split('\n');
+  assert('诊断块恰好 ' + DIAG_FIELD_NAMES.length + ' 行，顺序与字段名等于白名单', diagLines1.length === DIAG_FIELD_NAMES.length && diagLines1.every((l, i) => l.indexOf(DIAG_FIELD_NAMES[i] + '=') === 0), diagLines1.join(' | '));
+  assert('诊断块里没有事件名、书名、描述、文件夹路径', NEEDLES.every((n) => c1.diag.indexOf(n) === -1), c1.diag.replace(/\n/g, ' / '));
+  assert('两条 href 编码后同样不含用户内容', NEEDLES.every((n) => c1.mail.href.indexOf(encodeURIComponent(n)) === -1 && c1.issues.href.indexOf(encodeURIComponent(n)) === -1), 'leak check');
+  assert('诊断块的 lang 是当前界面语言（不是残留的 unknown）', /(^|\n)lang=(en|zh|ja)(\n|$)/.test(c1.diag), c1.diag.replace(/\n/g, ' / '));
+  assert('打开反馈不会顺带把帮助也点开', c1.helpOpen === false, String(c1.helpOpen));
+  // 草稿可编辑：用户改过的文本必须原样出现在两条链接里（反馈内容归用户控制）
+  const edited = 'build=manual-EDIT\nlang=zh';
+  await H.setValue('[data-contact-diag]', edited);
+  const cd = await H.until('编辑后的草稿同时进入两条链接', async () => {
+    const x = await contactProbe();
+    return x && x.diag === edited && x.mail.href.indexOf(encodeURIComponent(edited)) > 0 && x.issues.href.indexOf(encodeURIComponent(edited)) > 0 ? x : null;
+  }, 8000);
+  assert('改动过的诊断文本覆盖自动生成值', !!cd, cd ? 'ok' : 'diag 未被覆盖');
+  await pressEscape();
+  assert('Esc 关闭反馈面板', (await H.until('Esc 后反馈面板消失', async () => ((await contactProbe()) === null ? true : null), 8000)) === true);
+
+  // —— 帮助面板：八个小节，而且里面再也找不到反馈 ——
   await H.clickText('button', en.help.entry);
   const h1 = await H.until('英文帮助面板打开', async () => (await helpProbe()) || null, 10000);
   assert('面板标题来自 i18n：' + h1.title, h1.title === en.help.title, String(h1.title));
-  assert('八个小节全部渲染', h1.sections === 8, h1.sectionKeys);
+  assert('八个小节全部渲染（⑧ 常见问题是最后一节）', h1.sections === 8, h1.sectionKeys);
   assert('小节顺序等于组件里的 SECTION_ORDER', h1.sectionKeys === 'start,record,adjust,view,book,backup,privacy,faq', h1.sectionKeys);
   assert('目录 chip 也是八个且与小节一一对应', h1.navs === 8 && h1.navKeys === h1.sectionKeys, h1.navKeys + ' / ' + h1.sectionKeys);
   assert('目录 chip 文案 = 各节标题', JSON.stringify(h1.navTitles) === JSON.stringify(h1.sectionTitles), h1.navTitles.join(' | '));
+  const HELP_KEYS = ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'];
   assert('八节标题逐一对上英文字典',
-    h1.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => en.help.sections[k].title).join(' || '),
+    h1.sectionTitles.join(' || ') === HELP_KEYS.map((k) => en.help.sections[k].title).join(' || '),
     h1.sectionTitles.join(' | '));
   assert('每节都有正文（合计 ' + h1.bullets + ' 条），且成段不是空壳', h1.bullets >= 24 && h1.chars >= 1200, h1.bullets + ' 条 / ' + h1.chars + ' 字');
   assert('开头工具介绍来自字典（en 两段）', h1.aboutParas === 2 && h1.about === norm(en.help.about.join(' ')), h1.about.slice(0, 60));
@@ -1283,6 +1359,8 @@ await step('使用帮助：顶栏入口 / 开头介绍与备份提醒 / 目录�
   assert('开头备份提醒来自字典（en 两段）', h1.warnTitle === norm(en.help.warnLabel) && h1.warnParas === 2 && h1.warn === norm(en.help.warn.join(' ')), h1.warnTitle + ' / ' + h1.warn.slice(0, 60));
   assert('备份提醒排在目录和小节之前', h1.warnBeforeNav === true, String(h1.warnBeforeNav));
   assert('关闭按钮存在', h1.closeBtn === true);
+  assert('反馈确实已从帮助剥离：面板内没有反馈锚点、没有 <a>、没有 mailto', h1.contactAnchors === 0 && h1.anchors === 0 && h1.mailto === false, 'anchors=' + h1.contactAnchors + ' a=' + h1.anchors + ' mailto=' + h1.mailto);
+  assert('开帮助时反馈面板是关着的（两个入口互不牵连）', h1.contactOpen === false, String(h1.contactOpen));
 
   // 目录跳节：点最后一节的 chip，面板内部必须真的滚动起来
   await H.clickText('[data-help-nav]', en.help.sections.faq.title);
@@ -1291,32 +1369,49 @@ await step('使用帮助：顶栏入口 / 开头介绍与备份提醒 / 目录�
   assert('跳转不改变结构（仍八节、标题不变）', jumped.sections === 8 && jumped.title === en.help.title);
 
   await pressEscape();
-  assert('Esc 关闭面板', (await H.until('Esc 后面板消失', async () => ((await helpProbe()) === null ? true : null), 8000)) === true);
+  assert('Esc 关闭帮助面板', (await H.until('Esc 后面板消失', async () => ((await helpProbe()) === null ? true : null), 8000)) === true);
 
-  // 三语齐平由 i18n:check 守键集合，这里只验「界面语言一换，帮助正文立刻跟着换」
+  // 三语齐平由 i18n:check 守键集合，这里只验「界面语言一换，两个面板的正文立刻跟着换」
   await H.call('selectSet', 'header select', 'zh');
   await H.until('界面切到中文', () => H.call('has', zh.header.history), 10000);
+  const bar2 = await topBar();
+  assert('中文顶栏同样有「' + zh.contact.entry + '」且排在帮助之前：' + bar2, orderOf(bar2, zh.contact.entry) >= 0 && orderOf(bar2, zh.help.entry) > orderOf(bar2, zh.contact.entry), bar2);
+
   await H.clickText('button', zh.help.entry);
   const h2 = await H.until('中文帮助面板打开', async () => (await helpProbe()) || null, 10000);
   assert('中文标题：' + h2.title, h2.title === zh.help.title, String(h2.title));
   assert('中文八节标题逐一对上中文字典',
-    h2.sectionTitles.join(' || ') === ['start', 'record', 'adjust', 'view', 'book', 'backup', 'privacy', 'faq'].map((k) => zh.help.sections[k].title).join(' || '),
+    h2.sectionTitles.join(' || ') === HELP_KEYS.map((k) => zh.help.sections[k].title).join(' || '),
     h2.sectionTitles.join(' | '));
   assert('开头工具介绍来自字典（zh 两段）', h2.aboutParas === 2 && h2.about === norm(zh.help.about.join(' ')), h2.about.slice(0, 60));
   assert('导语来自字典（zh）', h2.intro === norm(zh.help.intro), h2.intro.slice(0, 60));
   assert('开头备份提醒来自字典（zh 两段）', h2.warnTitle === norm(zh.help.warnLabel) && h2.warnParas === 2 && h2.warn === norm(zh.help.warn.join(' ')), h2.warnTitle + ' / ' + h2.warn.slice(0, 60));
   assert('换语言不换结构与锚点', h2.sections === 8 && h2.navs === 8 && h2.sectionKeys === h1.sectionKeys, h2.sectionKeys);
   assert('正文条数与语言无关', h2.bullets === h1.bullets, h2.bullets + ' vs ' + h1.bullets);
-
-  // 关闭按钮（不是 Esc）也要关得掉，并且回到英文界面
+  assert('中文帮助同样没有反馈的痕迹', h2.contactAnchors === 0 && h2.anchors === 0 && h2.mailto === false, 'anchors=' + h2.contactAnchors);
   await H.click(await H.call('act', 'help-close'), 'help-close');
-  await H.until('关闭按钮收掉面板', async () => ((await helpProbe()) === null ? true : null), 8000);
+  await H.until('关闭按钮收掉帮助面板', async () => ((await helpProbe()) === null ? true : null), 8000);
+
+  await H.clickText('button', zh.contact.entry);
+  const c2 = await H.until('中文反馈面板打开', async () => {
+    const x = await contactProbe();
+    return x && x.diag && x.diag.indexOf('build=') === 0 ? x : null;
+  }, 10000);
+  assert('中文标题：' + c2.title, c2.title === zh.contact.title, String(c2.title));
+  assert('中文正文同样来自字典', c2.intro === norm(zh.contact.intro) && c2.lines === norm(zh.contact.lines.join(' ')) && c2.hint === norm(zh.contact.noMailHint), c2.intro.slice(0, 40));
+  assert('中文界面上的别名与两条入口齐备', c2.email === CONTACT_EMAIL && c2.mailLabel === norm(zh.contact.mailLabel) && c2.issuesLabel === norm(zh.contact.issuesLabel) && c2.mail.href.indexOf('mailto:' + CONTACT_EMAIL + '?') === 0 && c2.issues.href.indexOf(REPO_ISSUES_URL + '?') === 0, c2.email);
+  assert('邮件主题跟着语言换成中文', c2.mail.href.indexOf('subject=' + encodeURIComponent(zh.contact.subject)) > 0, c2.mail.href.slice(0, 90));
+  assert('Issue 正文跟着语言换成中文主题，但绝不含用户内容', [EV_OLD, BOOK, BOOK2].every((n) => c2.issues.href.indexOf(encodeURIComponent(n)) === -1), c2.issues.href.slice(-60));
+  assert('关掉再打开不残留上一次的手改草稿', c2.diag.indexOf('manual-EDIT') === -1 && c2.diag.indexOf('build=') === 0, String(c2.diag).replace(/\n/g, ' / '));
+  await H.click(await H.call('act', 'contact-close'), 'contact-close');
+  await H.until('关闭按钮收掉反馈面板', async () => ((await contactProbe()) === null ? true : null), 8000);
+
   await H.call('selectSet', 'header select', 'en');
   await H.until('切回英文', () => H.call('has', en.header.history), 10000);
 
   const hb = await H.call('menu');
-  assert('帮助入口不搅动顶栏结构', hb.headerButtons === 3, String(hb.headerButtons));
-  assert('帮助面板全程零 JS 异常', fatal().length === 0, fatal().join(' | '));
+  assert('两个入口都不搅动顶栏结构（历史 / 模板 / 反馈 / 帮助）', hb.headerButtons === 4, String(hb.headerButtons));
+  assert('帮助与反馈面板全程零 JS 异常', fatal().length === 0, fatal().join(' | '));
 });
 
 await step('收尾：全程零存储复核', async () => {

@@ -10,6 +10,7 @@ import Toast from './Toast.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
 import BookSettingsDialog from './BookSettingsDialog.jsx';
 import HelpDialog from './HelpDialog.jsx';
+import ContactDialog from './ContactDialog.jsx';
 import { useEvents } from '../hooks/useEvents.js';
 import { useTemplates } from '../hooks/useTemplates.js';
 import { useI18n } from '../i18n/index.jsx';
@@ -64,6 +65,8 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
   const [showTemplates, setShowTemplates] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  // 反馈面板的开关和帮助分开：两个顶栏入口互不牵连，开反馈不该把帮助一起点开
+  const [showContact, setShowContact] = useState(false);
   // 弹窗开关住在 useBooks（App 层），这里只派生：整棵重挂载（换书 / ⏳ loading）都不会把它弄丢
   const showBookSettings = books.settingsOpenFor != null && books.settingsOpenFor === book.id;
   const [statsScope, setStatsScope] = useState(settings.statsScope);
@@ -313,6 +316,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
         onOpenTemplates={handleTemplatesOpen}
         onOpenHistory={() => setShowHistory(true)}
         onOpenHelp={() => setShowHelp(true)}
+        onOpenContact={() => setShowContact(true)}
         historyCount={bookData.snapshots.length}
         locked={readOnly}
       />
@@ -377,6 +381,20 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
         lang={lang}
       />
       <HelpDialog open={showHelp} onClose={() => setShowHelp(false)} />
+      {/* 反馈通道的原料：只给计数与设备状态。事件名称 / 书名 / 文件夹路径一概不往外传，
+          白名单与「数组→计数」的收口都住在 src/utils/contact.js 里。 */}
+      <ContactDialog
+        open={showContact}
+        onClose={() => setShowContact(false)}
+        diag={{
+          books: books.books,
+          events: bookData.events,
+          snapshots: bookData.snapshots,
+          lang,
+          // 用 canMirror() 而不是 backup.active：句柄可能已授权但浏览器重连失败（I30）
+          mirrorConnected: typeof backup.canMirror === 'function' ? backup.canMirror() : false,
+        }}
+      />
       {showBookSettings && (
         <BookSettingsDialog book={book} onClose={() => books.closeSettings()} onSave={handleSaveBookSettings} />
       )}
