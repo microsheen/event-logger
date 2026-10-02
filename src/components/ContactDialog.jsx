@@ -65,6 +65,17 @@ export default function ContactDialog({ open, onClose, diag }) {
   const [persisted, setPersisted] = useState(null);
   // draft 为 null 表示「用户还没动过诊断块」，这时文本跟着自动值走（persisted 是异步回来的）
   const [draft, setDraft] = useState(null);
+  // open 从 false 翻到 true 的那一帧就在 render 期清状态（React 官方的 adjusting-state 写法）。
+  // 只靠 useEffect 做不到这件事：effect 在 commit 之后才跑，于是浏览器会先绘制一帧上一次的草稿。
+  // headless Chrome 在 CI 上就是这么抓住「关掉再打开不残留手改草稿」这条断言的，本机快反而看不见。
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setDraft(null);
+      setPersisted(null);
+    }
+  }
 
   useEffect(() => {
     if (!open) return undefined;
@@ -73,12 +84,10 @@ export default function ContactDialog({ open, onClose, diag }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // 每次打开重新采一次：诊断块说的就是「这次打开时」的状态，离开面板即丢弃用户改动
+  // 每次打开重新采一次：诊断块说的就是「这次打开时」的状态，改动本身由上面那一段负责丢弃
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
-    setDraft(null);
-    setPersisted(null);
     isPersisted().then((value) => { if (alive) setPersisted(value); });
     return () => { alive = false; };
   }, [open]);

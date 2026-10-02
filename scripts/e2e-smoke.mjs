@@ -1395,7 +1395,9 @@ await step('使用帮助与独立反馈面板：顶栏两枚入口 / 八个小�
   await H.clickText('button', zh.contact.entry);
   const c2 = await H.until('中文反馈面板打开', async () => {
     const x = await contactProbe();
-    return x && x.diag && x.diag.indexOf('build=') === 0 ? x : null;
+    // 刻意不看 diag 的前缀：上一次的手改草稿同样以 build= 开头。
+    // 把它当「面板打开好了」的信号，会把重开时的首帧残留掩盖成通过（CI 上就是这么红的）。
+    return x && x.diag ? x : null;
   }, 10000);
   assert('中文标题：' + c2.title, c2.title === zh.contact.title, String(c2.title));
   assert('中文正文同样来自字典', c2.intro === norm(zh.contact.intro) && c2.lines === norm(zh.contact.lines.join(' ')) && c2.hint === norm(zh.contact.noMailHint), c2.intro.slice(0, 40));
