@@ -454,7 +454,7 @@ npm run deploy            # build → csp:check → wrangler pages deploy dist -
 发布到公网有两条路，两条都要过同一条校验链（`build` → `csp:check`）：
 
 - **本机直发**：`npx wrangler login` 一次，然后 `npm run deploy`。凭证只留在本机（`.wrangler/state`，已 gitignore）。
-- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（11 项不变量 + build + csp:check，阻断；`desc:check` 随事件描述于 2026-10-02 加入，workflow 里那一步的显示名还没同步，属 cosmetic，碰 `.github/workflows/*` 要走 `workflow` scope）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 18 步，**目前带 `continue-on-error: true`，红了不拦**）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
+- **GitHub Actions**：`.github/workflows/ci-and-deploy.yml`。`master` 的 push / `workflow_dispatch` 跑三个 job：`checks`（11 项不变量 + build + csp:check，阻断；`desc:check` 随事件描述于 2026-10-02 加入，workflow 里那一步的显示名还没同步，属 cosmetic，碰 `.github/workflows/*` 要走 `workflow` scope）→ `browser-smoke`（ubuntu runner 上的真 headless Chrome 跑那 18 步，**硬闸门**：workflow 里根本没有 `continue-on-error`，而 `deploy` 写的是 `needs: [checks, browser-smoke]`，smoke 一红 publish 直接 skipped。2026-10-02 有一手实证：run 36975677582 的 smoke 红一条，publish 结果 `skipped`，线上停在旧版）→ `deploy`。`checks` 把 `dist/` 以 artifact 交给后两个 job，所以**上线的就是通过闸门的那一份**，不存在"检查一份、另建一份"。
 
 Actions 需要三个仓库级配置（Settings → Secrets and variables → Actions）：secret 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，加上变量的 `DEPLOY_ENABLED`。`deploy` job 的条件是 `github.event_name != 'pull_request' && github.ref_name == 'master' && vars.DEPLOY_ENABLED == 'true'` —— **变量缺失或值不是字符串 `true` 时，workflow 照样检查和构建，但线上一个字节都不会变**，这就是发布总闸（job 级 `if` 读不到 `env` 上下文，所以分支名在 `if` 里写成字面量，改默认分支要同时改 `env.PRODUCTION_BRANCH` 与那行 `if`）。Pages 项目由 workflow 首次 `wrangler pages project create` 自动创建，已存在则跳过。
 
@@ -550,6 +550,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
   顶栏「❓ 使用帮助」→ HelpDialog 只读内置指南（开头工具介绍 + 备份提醒 + 八节，三语文案住字典，不参与 locked 置灰）
   第 ⑨ 节「反馈与联系」→ 邮箱别名 + GitHub Issue 两条通道：只是拼 href、页面零请求，诊断 8 字段白名单（金丝雀断言守着），HelpDialog 146 → 220 行 + contact:check
   反馈从帮助里再独立一次：顶栏多一枚「💬 反馈」（排在帮助之前）→ ContactDialog 140 行，HelpDialog 退回八节 147 行，字典改成顶级 contact 段（13 键），contact:check 补三条「帮助里不许再有反馈」的反向不变量
+  CI 抓到本机抓不到的一帧：重开反馈面板会闪出上一次的手改草稿 → draft/persisted 的重置从 useEffect 移到 render 期（adjusting-state），smoke 的等待条件同时不再拿 diag 的 build= 前缀当信号。顺带纠正一句旧口径：browser-smoke 从来不是软的，deploy needs 它，红了就上不去了
 ```
 
 系统并非一次成型，而是围绕**四个早期锚点**长出来的：**slot 时间模型**、**纯函数业务层**、**单一 payload 文档**、**hooks 独占 I/O**。前两个从初版就成立；后两个在初版表现为"一个 `data.json` + 一个 `usePersistentData`"，本轮把它们换成了"IndexedDB 里 `data` store 的一行 + `useBookData`"——**换的只是存放处和搬运工，形状没变**，所以 i18n、排序引擎、缩放、剪贴板、跨日期拖动这些既有功能在迁移中一行业务规则都不用改。这也是"服务器零存储"能在一轮里做完的真正原因：需要重写的只有 I/O 边界那一层。
@@ -564,13 +565,13 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `server.js` | 34 | 只发 `dist/` 静态文件 + 只读 `GET /api/legacy-data`。**没有任何写接口** |
+| `server.js` | 33 | 只发 `dist/` 静态文件 + 只读 `GET /api/legacy-data`。**没有任何写接口** |
 | `vite.config.js` | 77 | PWA（Workbox）配置、构建号 `BUILD_ID` 注入（`define`）、recharts 分包、dev `/api` 代理到 3002 |
-| `index.html` | 42 | 根节点 + React 挂载前的内联语言/标题脚本（哈希必须与 `_headers` 同步，§7.3） |
+| `index.html` | 41 | 根节点 + React 挂载前的内联语言/标题脚本（哈希必须与 `_headers` 同步，§7.3） |
 | `public/_headers` | — | Cloudflare Pages 专用：CSP（含内联脚本 sha256）+ 缓存策略 + 权限策略 |
 | `public/robots.txt` | — | 禁止收录（工具站，不是内容站） |
-| `.github/workflows/ci-and-deploy.yml` | 162 | checks / browser-smoke / deploy 三个 job；`DEPLOY_ENABLED` 是发布总闸（见 §10） |
-| `README.md` | 123 | **默认英文版**；顶部语言条在中 / 英 / 日之间切换 |
+| `.github/workflows/ci-and-deploy.yml` | 169 | checks / browser-smoke / deploy 三个 job；`DEPLOY_ENABLED` 是发布总闸（见 §10） |
+| `README.md` | 124 | **默认英文版**；顶部语言条在中 / 英 / 日之间切换 |
 | `README.zh-CN.md` · `README.ja-JP.md` | 122 · 123 | 中文版、日语版；三份结构 1:1，改内容必须三份同步 |
 
 ### `src/` 入口与页面
@@ -587,11 +588,11 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/components/StatsPanel.jsx` | 230 | 类别饼图、堆叠柱、排行榜（recharts，懒加载分包） |
 | `src/components/HistoryPanel.jsx` | 316 | 历史版本列表：reason 中文标签、预览、恢复（不可逆提示）、手删；工具栏＝立即存档 + 导出全部，外加镜像文件夹的"查看 + 修改"块（`data-mirror-state`）——正文只一行，细节全在按钮 `title` 里，已连接时给一行自动镜像节奏下拉；「重新镜像」不在正文，收在查看面板里 |
 | `src/components/MirrorFolderView.jsx` | 124 | 「查看镜像文件夹」面板：只读列举磁盘文件名（根目录 / 每本簿 / latest / snapshots），带刷新与收起，底部是折叠的整链重推 |
-| `src/components/Calendar.jsx` | 146 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
+| `src/components/Calendar.jsx` | 147 | 月历（42 格，前导格按当前 book 的 `weekStartsOn`） |
 | `src/components/TemplateManager.jsx` | 144 | 模板增删改 + 排序 |
-| `src/components/BookSettingsDialog.jsx` | 85 | 单本设置：书名、周开始日、语言、视口、统计档位 |
+| `src/components/BookSettingsDialog.jsx` | 86 | 单本设置：书名、周开始日、语言、视口、统计档位 |
 | `src/components/HelpDialog.jsx` | 147 | 只读使用指南：开头介绍 + 备份提醒 callout + 八个小节 + 目录 chip + `Escape`，正文全在字典（`help.about` / `help.intro` / `help.warnLabel` / `help.warn` / `help.sections`，顺序在组件里）。反馈已搬走：这里不再有别名、`<a>`、mailto，也不读 `isPersisted()`。smoke 第 17 步的定位锚点：`data-help-dialog` / `data-help-top` / `data-help-about` / `data-help-intro` / `data-help-warn` + `data-help-warn-title` / `data-help-nav-<key>`×8 / `data-help-scroll` / `data-help-section-<key>`×8 / `data-action="help-close"` |
-| `src/components/ContactDialog.jsx` | 140 | 顶栏「💬 反馈」的独立只读面板（帮助之外唯一的对外通道）：别名一行 + 两枚只拼出来的 href + 可编辑诊断块 +「没装邮件客户端怎么办」提示 + 页脚本地徽章。锚点：`data-contact-dialog` / `data-contact-intro` / `data-contact-lines` / `data-contact-email-label` + `data-contact-email` / `data-contact-mail` / `data-contact-issues` / `data-contact-diag-label` + `data-contact-diag` / `data-contact-hint` / `data-action="contact-close"` |
+| `src/components/ContactDialog.jsx` | 149 | 顶栏「💬 反馈」的独立只读面板（帮助之外唯一的对外通道）：别名一行 + 两枚只拼出来的 href + 可编辑诊断块 +「没装邮件客户端怎么办」提示 + 页脚本地徽章。锚点：`data-contact-dialog` / `data-contact-intro` / `data-contact-lines` / `data-contact-email-label` + `data-contact-email` / `data-contact-mail` / `data-contact-issues` / `data-contact-diag-label` + `data-contact-diag` / `data-contact-hint` / `data-action="contact-close"` |
 | `src/components/ContextMenu.jsx` | 83 | 自研右键菜单（fixed 定位 + 视口内翻转 + 置灰项） |
 | `src/components/TemplateSortControl.jsx` | 45 | 排序分段控件（两个弹窗共用） |
 | `src/components/WeekStartPicker.jsx` | 37 | 周开始日选择器（同时预览"这本书的本周"范围，把设置变成看得见的东西） |
@@ -601,8 +602,8 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `src/hooks/useBookData.js` | 338 | 一本书的载入 / 防抖写盘 / 快照链 / 回放与恢复 / 单写者 / 配额提示。`loadedRef` 门见 §5 |
-| `src/hooks/useBooks.js` | 171 | EventBook 集合：零本书时自举默认簿（`seedDefaultBook`）+ 新建/删除/切换/合并写设置 + `settingsOpenFor` 弹窗意图（App 层持有，见 §4.3） |
+| `src/hooks/useBookData.js` | 344 | 一本书的载入 / 防抖写盘 / 快照链 / 回放与恢复 / 单写者 / 配额提示。`loadedRef` 门见 §5 |
+| `src/hooks/useBooks.js` | 170 | EventBook 集合：零本书时自举默认簿（`seedDefaultBook`）+ 新建/删除/切换/合并写设置 + `settingsOpenFor` 弹窗意图（App 层持有，见 §4.3） |
 | `src/hooks/useBookTransfer.js` | 118 | 导出 v2 信封（含所有书）、导入（永远是新增簿，按书名+事件指纹防撞）；`mirrorAll()` 把当前所有簿与全部快照交给 `resyncTree` 整链重推 |
 | `src/hooks/useBackupFolder.js` | 159 | 镜像文件夹的授权/重连（句柄存 `meta`），把 `folderBackup` 变成"能连就同步、连不上就静默"；state 一律经 `stateRef` 读，节奏一律经 `intervalRef` 读，另暴露 `canMirror()` / `resyncAll()` / `setIntervalMin()` |
 | `src/hooks/useTemplateSort.js` | 111 | 排序偏好 store（模块级 state + `useSyncExternalStore` + `storage` 事件） |
@@ -615,18 +616,18 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `src/storage/idb.js` | 148 | **全站唯一**碰 `indexedDB` 的模块：库 `event-logger@1`、4 个 store、Promise 化读写、`isSupported`、`estimateUsage`、`requestPersistence`，外加 `isPersisted()`（**只查询、绝不申请**，给反馈诊断块用；申请持久化仍然只有 `useBookData` 那一处） |
-| `src/storage/books.js` | 154 | book 的归一化/新建/改名清洗 + `makeDefaultBook` / `defaultBookName` / `DEFAULT_BOOK_ID`（零本书自举）+ 列表与 CRUD + `readLiveData` / `writeLiveData` |
-| `src/storage/snapshots.js` | 223 | 快照链：写前钩子与节奏、指纹去重、分层淘汰、列表（不含 payload）、按 id 取 payload、删除 |
-| `src/storage/bus.js` | 148 | `BroadcastChannel('event-logger:bus')`：数据/快照/书目失效通知 + 单写者锁（心跳 2s，接管即赢） |
-| `src/storage/folderBackup.js` | 301 | File System Access 镜像：`EventLogger Backups/<书名>/latest.json` 与 `snapshots/*.json` + manifest；**只写不读**；`resyncTree()` 负责整链回补；`normalizeMirrorInterval()` 把节奏脏值归到档位、`resetLatestStamps()` 换节奏清窗口；`listMirrorTree()` 是给查看面板用的**只读列举**（永不抛，读不到就返回 `missingRoot`） |
-| `src/storage/legacy.js` | 110 | 备份信封 v1/v2 识别与生成、`planImport` 防撞、旧 `data.json` → 新书的映射（纯函数，可 Node 断言） |
+| `src/storage/books.js` | 153 | book 的归一化/新建/改名清洗 + `makeDefaultBook` / `defaultBookName` / `DEFAULT_BOOK_ID`（零本书自举）+ 列表与 CRUD + `readLiveData` / `writeLiveData` |
+| `src/storage/snapshots.js` | 222 | 快照链：写前钩子与节奏、指纹去重、分层淘汰、列表（不含 payload）、按 id 取 payload、删除 |
+| `src/storage/bus.js` | 147 | `BroadcastChannel('event-logger:bus')`：数据/快照/书目失效通知 + 单写者锁（心跳 2s，接管即赢） |
+| `src/storage/folderBackup.js` | 300 | File System Access 镜像：`EventLogger Backups/<书名>/latest.json` 与 `snapshots/*.json` + manifest；**只写不读**；`resyncTree()` 负责整链回补；`normalizeMirrorInterval()` 把节奏脏值归到档位、`resetLatestStamps()` 换节奏清窗口；`listMirrorTree()` 是给查看面板用的**只读列举**（永不抛，读不到就返回 `missingRoot`） |
+| `src/storage/legacy.js` | 109 | 备份信封 v1/v2 识别与生成、`planImport` 防撞、旧 `data.json` → 新书的映射（纯函数，可 Node 断言） |
 
 ### `src/utils/`（纯函数）
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `src/utils/time.js` | 108 | slot ↔ 时间、日期格式化、`normalizeWeekStart`、周窗口 / 周号 / 月历前导格 |
-| `src/utils/stats.js` | 119 | 事件筛选与日/周/月/年聚合（一律本地日期键，不用 `toISOString`） |
+| `src/utils/stats.js` | 118 | 事件筛选与日/周/月/年聚合（一律本地日期键，不用 `toISOString`） |
 | `src/utils/dayDrop.js` | 101 | 跨日期落点规则（空闲窗口 / 位移最小夹紧 / 横向命中列） |
 | `src/utils/contact.js` | 92 | 反馈通道唯一的规则层：公开常量只有别名 `CONTACT_EMAIL` 与 `REPO_ISSUES_URL`；`DIAG_FIELD_NAMES` 8 字段白名单（顺序即契约）、`collectDiagnostics`（数组取长度、布尔转 yes/no、脏值退 unknown、对上一轮输出幂等）、`buildDiagnosticsText`（ASCII `key=value` 逐行、剥控制字符、600 字上限时先牺牲 ua 尾巴）、`mailtoUrl` / `issuesUrl`（只 encode 不请求）。纯函数、不 import React、碰不到任何 store |
 | `src/utils/slotRange.js` | 82 | 边缘缩放夹紧规则（邻居墙 / 视口 / 最短时长） |
@@ -635,15 +636,15 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/utils/templates.js` | 50 | ISO 校验与时间戳读写 |
 | `src/utils/size.js` | 23 | 字节数可读化（历史面板显示快照体积） |
 | `src/utils/eventDescription.js` | 19 | 事件 `description` 的唯一规则层：`MAX_EVENT_DESC = 500`、`normalizeEventDescription`（非字符串→空串 / CRLF→LF / 只留 `\t` `\n` 的控制字符剥离 / 先截断再 trim / 幂等）、`eventDescription(event)` 读取侧访问器（I36） |
-| `src/utils/categories.js` | 9 | 类别元数据单一来源（key / CSS 变量 / hex / 图标） |
+| `src/utils/categories.js` | 8 | 类别元数据单一来源（key / CSS 变量 / hex / 图标） |
 
 ### `src/i18n/`、`src/styles/`
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
-| `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
-| `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
+| `src/i18n/format.js` | 103 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
+| `src/i18n/index.jsx` | 48 | `I18nProvider` / `useI18n` |
 | `src/i18n/locales/{zh,en,ja}.js` | 346 × 3（283 键，其中 `help` 段 55 键、顶级 `contact` 段 16 键） | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
@@ -651,17 +652,17 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 1456 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入（含描述往返：弹窗 / tooltip / IndexedDB 三处一致，清空即生效）/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗与独立反馈面板（顶栏四枚按钮的**顺序**也断言：反馈必须排在帮助之前 / 开头两段工具介绍与红色备份提醒逐字等于字典且排在目录之前 / 八节 / 目录跳节真的滚起来 / 反馈面板里两条 href 只验形状与 `target`+`rel`、诊断恰好 8 行且不含事件名书名、手改草稿会覆盖自动值、重开面板丢草稿、**绝不点击**那两枚链接 / 帮助面板内没有反馈锚点、没有 `<a>`、没有 mailto / 两个面板互不牵连 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
-| `scripts/check-book-store.mjs` | 455 | 设置守门、书名与文件名清洗、零本书自举的默认簿（三语书名 / 固定 id / 默认值与 `makeBook` 同源 / 非法语言回退 / 幂等）、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流、查看面板的只读列举（零创建零写入、截断与脏 limit、缺目录与异常降级） |
+| `scripts/e2e-smoke.mjs` | 1458 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入（含描述往返：弹窗 / tooltip / IndexedDB 三处一致，清空即生效）/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗与独立反馈面板（顶栏四枚按钮的**顺序**也断言：反馈必须排在帮助之前 / 开头两段工具介绍与红色备份提醒逐字等于字典且排在目录之前 / 八节 / 目录跳节真的滚起来 / 反馈面板里两条 href 只验形状与 `target`+`rel`、诊断恰好 8 行且不含事件名书名、手改草稿会覆盖自动值、重开面板丢草稿、**绝不点击**那两枚链接 / 帮助面板内没有反馈锚点、没有 `<a>`、没有 mailto / 两个面板互不牵连 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
+| `scripts/check-book-store.mjs` | 454 | 设置守门、书名与文件名清洗、零本书自举的默认簿（三语书名 / 固定 id / 默认值与 `makeBook` 同源 / 非法语言回退 / 幂等）、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流、查看面板的只读列举（零创建零写入、截断与脏 limit、缺目录与异常降级） |
 | `scripts/check-contact.mjs` | 161 | 反馈通道：白名单字段集合与顺序、**金丝雀**（含中文书名 / 事件名 / 描述 / 文件夹路径的来源对象过一遍，输出里一个字都不许出现）、脏输入与幂等、600 字上限、`mailto` 与 Issue 的 URL 形状，再是对 `src/utils/contact.js` + `ContactDialog.jsx` 的**零外呼静态守卫**（`fetch(` / `XMLHttpRequest` / `sendBeacon` / `navigator.clipboard` / `window.open` / `<form` / `WebSocket` / `localStorage.setItem` / `indexedDB` 一个都不许出现），最后三条**反向不变量**守着「反馈已从帮助剥离」：`HelpDialog.jsx` 里不得出现 `utils/contact.js`、`data-contact`、邮箱别名 |
-| `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
-| `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |
-| `scripts/check-react-imports.mjs` | 79 | React 具名 API 是否都显式 import（I26） |
-| `scripts/check-csp-hash.mjs` | 50 | `index.html` 内联脚本 sha256 与 `_headers` 是否一致（I25） |
+| `scripts/check-week-start.mjs` | 190 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
+| `scripts/check-snapshot-policy.mjs` | 164 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |
+| `scripts/check-react-imports.mjs` | 78 | React 具名 API 是否都显式 import（I26） |
+| `scripts/check-csp-hash.mjs` | 49 | `index.html` 内联脚本 sha256 与 `_headers` 是否一致（I25） |
 | `scripts/check-day-drop.mjs` | 201 | 跨日期落点 + 12960 组扫描 |
 | `scripts/check-slot-range.mjs` | 133 | 边缘缩放 + 2040 组扫描 |
 | `scripts/check-event-clipboard.mjs` | 120 | 剪贴板规则 + 62640 组扫描（含描述随 `copy`/`cut` 快照走、脏描述归一、旧事件无该键读作空串） |
 | `scripts/check-event-desc.mjs` | 80 | 事件描述归一：脏类型→空串 / CRLF→LF / 控制字符剥离但留 `\t` `\n` / 首尾空白 trim / 恰好截到 500 / 幂等 + 读取侧缺键兼容 |
 | `scripts/check-template-sort.mjs` | 144 | 排序引擎 ~70 条确定性断言；基准时钟只取一次（断言不许重算 fixture 的期望时间戳） |
 | `scripts/check-i18n.mjs` | 72 | 三语键集合与占位符一致性 |
-| `scripts/make-icons.mjs` | 158 | 从 `favicon.svg` 生成 4 档 PWA 图标（无 sharp，自实现 PNG 编码） |
+| `scripts/make-icons.mjs` | 157 | 从 `favicon.svg` 生成 4 档 PWA 图标（无 sharp，自实现 PNG 编码） |

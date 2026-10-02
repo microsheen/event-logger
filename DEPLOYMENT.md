@@ -792,6 +792,9 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 01:56 | 定一条收口的规矩：**§0 那行不再逐次追平**，本节也只登记「有新增信息」的手 | 理由就在上一行那种自指：这一记提交唯一做的事，就是把「当前线上产物」改成不再逐次维护——它自己又要被下一次部署作废。往后线上复核只在这两种时候写进本节：真的改了行为（按 §8.4 第 ③ 步该不该重跑 smoke 同一个判据），或用户点名要一手证据。beacon 的样本数到此停在六手，措辞已按时间封口 |
 | ~06:3x（控制台侧时刻未记录） | **§11 第 9 项收口：别名在界面上跑通**（用户亲手操作，全程没动 token 作用域） | 顺序照 §15.3 走：Onboard 只勾入站 → Destination 邮箱回信点验证（状态 `Verified`）→ 建 `hi` 路由规则（`Send to an email`）→ **从另一个邮箱发测试信，目标收件箱成功收到**。这最后一手才是「转发真的通」的证据，DNS 记录齐了不算数 |
 | 06:41:14 | **开通后的 DNS 复验**（本机跑 §14 的 4b 探针） | 三条 MX：`route1/2/3.mx.cloudflare.net`，priority `91 / 6 / 63`（本机解析返回顺序 3 → 1 → 2，投递看 priority 不看返回顺序，实际从 `route2` 起）；**优先级数字由 Cloudflare 自己分配，别抄某个帖子里的具体值**。apex TXT `v=spf1 include:_spf.mx.cloudflare.net ~all`；DKIM `cf2024-1._domainkey` 一条 `v=DKIM1; h=sha256; k=rsa; p=…`；A `172.67.171.144` / `104.21.79.220`、AAAA 两条与开通前一致；`resolveCname(apex)` 仍 `ENODATA`（§15.2 那个预期现象）；`_dmarc` 仍 `ENOTFOUND`（§15.4 刻意为空）。结论：入站管道在位，站点侧零变化 |
+| 06:52:40 → 06:54:02 | run `36975677582`（push `c6ee7a0..c107c33`，三笔：feat + 两份 docs） | `checks + build` 全绿，**`e2e smoke` 红一条**：「关掉再打开不残留上一次的手改草稿」实测拿到 `build=manual-EDIT / lang=zh`。`publish` 因此 `skipped`（`needs: [checks, browser-smoke]`），**线上原地停在 `c6ee7a0`，没上坏版本**。同一份代码本机连跑三次全绿：CI 的 headless Chrome 慢半拍，正好把那一帧抓到 |
+| 06:59:20 → 07:00:56 | run `36976221649`（`cffcd94`）三 job 全 success → **deployment `ba0f626e`** | 修复：`ContactDialog` 把 `draft` / `persisted` 的重置从 `useEffect` 挪到 render 期（React 官方的 adjusting-state 写法）。effect 在 commit 之后才跑，所以旧写法必然先绘制一帧上一次的草稿；smoke 那处等待条件也不再拿 `diag` 开头的 `build=` 当「面板打开好了」的信号，因为旧草稿同样以它开头，会把残留掩盖成通过。CI 上 publish 上传 4 个文件 + `_headers`，闸门第一次真的拦过一次上线 |
+| 07:0x | 本机打线上复跑远程 smoke，仍然拿回企业网关的拦截页 | 症状是 §9.3 那一条，不是应用：`title="daily-event-logger.com"`、54 个元素、`data-build=""`、`#root` 无子节点。所以线上这一手由「CI 三 job 全绿 + deployment `ba0f626e`」与浏览器点验承担，本机 curl / node fetch 那两条路的限制见本节上方与 §8.4 |
 
 ---
 
