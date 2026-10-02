@@ -23,6 +23,7 @@
 | 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；每一次 run 的 id、耗时与产物变化都逐条记在 §13 时间线，别看这里的「最近一次」 |
 | 上线开关 | 仓库变量 `DEPLOY_ENABLED = true` | 改成 `false` 即停止自动上线 |
 | 域名 | Cloudflare Registrar 注册，`.com` | 2026-10-01 注册，2027-10-01 到期，**默认自动续费** |
+| 反馈别名 | `hi@daily-event-logger.com`（Cloudflare Email Routing 收件转发） | **✅ 2026-10-02 已开通，测试信实测到达目标收件箱**。控制台侧：目标地址验证为 `Verified` 后建好 `hi` 路由规则（用户在界面里亲手点的，没记精确时刻，所以本节只给能复现的那一手）；DNS 侧本机复验于 2026-10-02T06:41Z：三条 MX + 根域 SPF TXT + DKIM TXT 全部到位，A/AAAA 与开通前同一组代理 IP，站点未受影响（§15.1）。`_dmarc` 依旧为空，**刻意为之**，只做入站转发不需要它（§15.4）。代码侧同步就绪：顶栏「💬 反馈」独立面板，已从帮助里剥离。实操顺序见 §15.3，§11 第 9 项已关闭 |
 | 仓库 | https://github.com/microsheen/event-logger （公开，MIT） | 从 GitHub Enterprise 迁出，历史压成一条初始提交后再无敏感 blob |
 
 ---
@@ -437,7 +438,7 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
 - **为什么用户数据仍然没出去**：本页 CSP 是 `script-src 'self' 'sha256-w0gKEdhip21a3vtClMag76dqpcHXt7xV2h45snx7F5M='`，
   不含这个域，Chrome **当场拦下脚本执行**（控制台留一条 CSP violation），所以没有任何东西被发出去。
   拦下是兜底，不是解决。首轮线上 smoke 的 9 条红里有 **7 条**是它：「零 JS 异常 / 零 CSP 违规」3 处、
-  「镜像块渲染零 JS 异常」、「帮助面板全程零 JS 异常」、「零第三方」、「全程零跨域」（另 2 条是 §9.3 那两个脚本抖动）。
+  「镜像块渲染零 JS 异常」、「帮助与反馈面板全程零 JS 异常」、「零第三方」、「全程零跨域」（另 2 条是 §9.3 那两个脚本抖动）。
   同一套产物在本地跑 18 步全绿——本地那个随机端口服务器不属于这个 zone，没人给它注入。
 - **修法（只有持有该 Cloudflare 账号的人能做，仓库侧改不了）**：
   1. 控制台 → **Analytics & Logs → Web Analytics** → 选中 `daily-event-logger.com` 站点 →
@@ -659,7 +660,7 @@ git push origin master      # 32c175b..062aacc
 
 ---
 
-## 11. 还需要你决定的 8 件事（按优先级）
+## 11. 还需要你决定的 9 件事（按优先级）
 
 | # | 事项 | 现状 | 影响 | 建议 |
 | --- | --- | --- | --- | --- |
@@ -671,6 +672,7 @@ git push origin master      # 32c175b..062aacc
 | 6 | 历史里那条 Gmail + 域名自动续费 | `e9b0559` 的 author 是个人 Gmail；`.com` 默认自动续费（10.46 USD/年，2027-10-01 到期） | Gmail 已在公网历史里；续费不关的话明年会自己扣钱 | Gmail 要不要洗由你定：rewrite 会重放那条碰 workflow 的提交，**同样需要 `workflow` scope**（现在有了，随时可做）；续费开关建议现在就去看一眼 |
 | 7 | ~~关掉 zone 上的 Web Analytics 自动注入~~ **✅ 15:03 已关（Delete 站点属性）** | 曾经：apex / `www` 的 HTML 被插入 `static.cloudflareinsights.com/beacon.min.js`，执行被自家 CSP 拦下 | 现在：三 host 带浏览器式请求头都是 1904 B、无 beacon；线上 smoke 18 步 196 条断言全绿（§13 15:06）。「零第三方」不再靠 CSP 兜底；截至 2026-10-02 01:51Z 已验到六个独立部署样本（§8.4） | 复验口径见 §8.4 末尾。日后若要用 Web Analytics，走 **Manual setup**（自己粘 snippet），别再开自动注入 |
 | 8 | **`/sw.js` 的 `no-cache` 在 apex / `www` 上不算数**（2026-10-02 01:21Z 实测，见 §8.5） | `_headers` 写 `no-cache`，`pages.dev` 原样生效；自定义域名回 `max-age=14400`，连 `/registerSW.js`、`/robots.txt`、`/favicon.svg`、`*.png` 一起挂 4 小时；`/assets/*` 与 `manifest.webmanifest` 没被动 | 只碰 PWA shell 的更新路径，**碰不到任何数据**（事件/模板/簿/快照都在 IndexedDB 与镜像文件夹里，与 HTTP 缓存无关）；目前也没有它真的拖过更新的证据 | 先定归因：控制台 Speed → Optimization → Caching → **Browser Cache TTL** 的实际值（我这边没有 zone 的 API token，验不了）。要修：精准走 Rules → Cache / Transformation Rules，对 `starts_with request.uri "/sw.js"` 与 `/registerSW.js` 覆写 `Cache-Control: no-cache`；省事就把那个 TTL 调短，代价是全站静态资源跟着变。不修也行，但文档里再写「`sw.js` 是 no-cache」必须带上 §8.5 那句限定 |
+| 9 | ~~建反馈别名 `hi@daily-event-logger.com`~~ **✅ 2026-10-02 已开通并实测** | §15.3 那六步全跑过：Onboard 只勾入站 → Destination 收到验证邮件并点成 `Verified` → 建 `hi` 路由规则（`Send to an email`）→ DNS 复验 → **从另一个邮箱发的测试信已被目标收件箱成功收到**（用户 2026-10-02 确认）。本机 06:41Z 复验值：三条 MX（priority `91 / 6 / 63`）、apex TXT `v=spf1 include:_spf.mx.cloudflare.net ~all`、DKIM `cf2024-1._domainkey` 均在位；A `172.67.171.144` / `104.21.79.220` 与开通前一致 | 页面上那枚「✉️ 写信」现在有真收件人了，代码一行没改（地址早写死在 `src/utils/contact.js` 的 `CONTACT_EMAIL`）。GitHub Issue 那条不依赖别名，本来就能用 | **红线不变**：那个私人邮箱地址绝不进仓库、不进 git 历史、也不写进本文档，转发关系只存在于控制台的 Destination 字段里。这一项唯一剩下的事是部署顺序：这批代码一 push，页面就公开印着 `hi@`，公开地址必收垃圾（§15.5）。前置条件现已满足，push 与否等你点头 |
 
 补充说明（不算决策，但要知道）：**中国大陆访问 Cloudflare 免费节点不稳定**是普遍现象，
 与本项目配置无关。如果目标用户主要在境内，要么接受偶发不通，要么换带中国大陆优化的方案（那会引入备案与新的信任问题，
@@ -788,6 +790,8 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 01:49:46 | run `36952660491`（`71a45f3`）三 job success，deployment `3b86a9c4` | 拿 publish job id 这一路又踩两回：`--json jobs --template` 把整数打成科学计数法（精度丢）、`--jq` 那条被 PowerShell 把转义引号原样交给 jq 而报 unexpected token；能用的是 `--json jobs` 管道给 node 取 `databaseId`，写法已进 §14 |
 | 01:51:21 | ✅ **第六次 beacon 复验** | 三个生产 host 加 `3b86a9c4` 预览 URL 共四个地址：全部 200 / **1904 B / 1802 字符** / 同一份 `index-BWxAoFWY.js` / HTML sha256 同为 `98a42e117c49272f…`；三个 beacon 标记全无、HTML 里 `https://` **0 次**；bundle 317164 B / sha `edd4a430…` / buildId `71a45f3e-20261002014827` / `StatsPanel-DhcOn2Dg.js`；`Strict-Transport-Security` 依旧没有 |
 | 01:56 | 定一条收口的规矩：**§0 那行不再逐次追平**，本节也只登记「有新增信息」的手 | 理由就在上一行那种自指：这一记提交唯一做的事，就是把「当前线上产物」改成不再逐次维护——它自己又要被下一次部署作废。往后线上复核只在这两种时候写进本节：真的改了行为（按 §8.4 第 ③ 步该不该重跑 smoke 同一个判据），或用户点名要一手证据。beacon 的样本数到此停在六手，措辞已按时间封口 |
+| ~06:3x（控制台侧时刻未记录） | **§11 第 9 项收口：别名在界面上跑通**（用户亲手操作，全程没动 token 作用域） | 顺序照 §15.3 走：Onboard 只勾入站 → Destination 邮箱回信点验证（状态 `Verified`）→ 建 `hi` 路由规则（`Send to an email`）→ **从另一个邮箱发测试信，目标收件箱成功收到**。这最后一手才是「转发真的通」的证据，DNS 记录齐了不算数 |
+| 06:41:14 | **开通后的 DNS 复验**（本机跑 §14 的 4b 探针） | 三条 MX：`route1/2/3.mx.cloudflare.net`，priority `91 / 6 / 63`（本机解析返回顺序 3 → 1 → 2，投递看 priority 不看返回顺序，实际从 `route2` 起）；**优先级数字由 Cloudflare 自己分配，别抄某个帖子里的具体值**。apex TXT `v=spf1 include:_spf.mx.cloudflare.net ~all`；DKIM `cf2024-1._domainkey` 一条 `v=DKIM1; h=sha256; k=rsa; p=…`；A `172.67.171.144` / `104.21.79.220`、AAAA 两条与开通前一致；`resolveCname(apex)` 仍 `ENODATA`（§15.2 那个预期现象）；`_dmarc` 仍 `ENOTFOUND`（§15.4 刻意为空）。结论：入站管道在位，站点侧零变化 |
 
 ---
 
@@ -840,6 +844,33 @@ await cf('/zones/' + zone + '/dns_records?name=daily-event-logger.com');
 ```
 
 ```bash
+# 4b) 不依赖任何凭证的本地 DNS 探针：只看「外部世界现在解析到什么」。
+#     §15.1 那两张对照表、§15.3 第 4 步的复验，跑的都是这一段。纯只读，随时可重跑。
+#     只走系统默认解析器：硬指定 1.1.1.1 / 8.8.8.8 在本机 UDP 超时（ETIMEOUT）；
+#     改走 Cloudflare DoH 又撞上沙箱证书链（UNABLE_TO_GET_ISSUER_CERT_LOCALLY）。别往那两条路上绕。
+node --input-type=module -e "
+import dns from 'node:dns/promises';
+const d = 'daily-event-logger.com';
+const probe = async (name, fn) => {
+  try { console.log(name + ' => ' + JSON.stringify(await fn())); }
+  catch (e) { console.log(name + ' => ERR ' + e.code); }
+};
+await probe('MX',         () => dns.resolveMx(d));
+await probe('SPF-TXT',    () => dns.resolveTxt(d));
+await probe('DKIM',       () => dns.resolveTxt('cf2024-1._domainkey.' + d));
+await probe('DMARC',      () => dns.resolveTxt('_dmarc.' + d));
+await probe('A',          () => dns.resolve4(d));
+await probe('AAAA',       () => dns.resolve6(d));
+await probe('CNAME-apex', () => dns.resolveCname(d));
+"
+# 开通后的期望值：MX 三条 route1/2/3.mx.cloudflare.net；SPF-TXT 一条 v=spf1 include:_spf.mx.cloudflare.net ~all；
+# DKIM 一条 v=DKIM1; h=sha256; k=rsa; p=…；A/AAAA 仍是 Cloudflare 代理 IP。
+# 两条「看着像失败」的输出是预期内的，别当故障查：
+#   DMARC => ENOTFOUND     只做入站转发不需要 DMARC，这里是刻意留空（§15.4）
+#   CNAME-apex => ENODATA  apex 的 proxied CNAME 被展平成 A/AAAA 回答，查不到不等于记录丢了（§15.2）
+```
+
+```bash
 # 5) CI/CD 侧常用三条
 gh run list --limit 5
 gh run view <run-id> --log | Select-String 'Deployment complete'   # 拿真 deployment id
@@ -861,3 +892,121 @@ npm run deploy        # build → csp:check → wrangler pages deploy dist --pro
 - `exec_command` 不要传 `justification`：本机 sandbox 已是 danger-full-access，多传会被拒。
 - `Remove-Item` 递归删除会被安全策略拦；删单个文件用 node `fs.unlinkSync` 更快。
 - `shell: 'bash'` 会跳进 WSL 并报错，Windows 上老老实实用默认 powershell。
+---
+
+## 15. 给反馈通道开一条邮箱别名（Cloudflare Email Routing 实操）
+
+网站上的「💬 反馈与联系」（顶栏独立入口，帮助之外唯一的对外通道）有两条通道：写信到 `hi@daily-event-logger.com`、
+或在公开仓库提 Issue。Issue 那条一直就能用；别名这条不一样，它收不收得到信取决于 Cloudflare 控制台里有没有配好入站转发，
+而这件事 **2026-10-02 已经做完，实测目标收件箱收到了转发的信**。所以本节从「照文档抄的预案」变成「装过一次的经验」：顺序、实测值、
+还有两处会被误判成故障的预期现象（`_dmarc` 为空、`resolveCname(apex)` 查不到）都留在下面，日后换别名或排障照着装。
+
+> 口径说明：本节最初是「照官方 2026-09 / 2026-06 版文档抄录的预案，本轮没有实跑控制台」——
+> 理由是 §5 那张权限表里没有 Email Routing 的作用域，而给一个只会「读一遍就得多照看一年」的服务临时扩权不划算。
+> **2026-10-02 已由用户在控制台界面里亲手跑通**，全程没动过 token 作用域：点界面不吃 API 权限，所以这条路本来就不需要扩权。
+> 于是本节的证据分两路，别混着读。DNS 一侧是本机可复现的实测（2026-10-02T06:41Z，探针见 §14 的 4b）；
+> 转发一侧是目标收件箱实际收到了测试信（用户确认）。控制台各步的精确时刻没有记录，
+> 所以 §13 那条时间线只挂了「本机 06:41Z 复验」这一手可复现的，前面那手标成时刻未记。
+
+### 15.1 先拍 DNS 底数：为什么这一步不能省
+
+开任何邮件服务之前，先确认「这个域名现在有没有人在收信」，否则你不知道自己是在覆盖别人还是在填空。
+探针是 §14 的 4b：纯只读、不需要任何凭证。下面两张表是同一个脚本在 onboard 前后各跑一次的对照。
+
+**开通前（2026-10-02，拍底数）**
+
+| 查询 | 结果 | 含义 |
+| --- | --- | --- |
+| `resolveMx(daily-event-logger.com)` | `ERR ENODATA` | **没有 MX**。任何发到 `anything@daily-event-logger.com` 的信都无处投递 |
+| `resolveTxt(daily-event-logger.com)` | `ERR ENODATA` | 没有 SPF，也就没有「得先合并别人的 SPF」这件事 |
+| `resolveTxt(_dmarc.daily-event-logger.com)` | `ERR ENOTFOUND` | 没有 `_dmarc` |
+| `resolve4(daily-event-logger.com)` | 两个 Cloudflare 代理 IP | 站点本身正常（Pages + 代理） |
+
+**开通后（2026-10-02T06:41Z 复验，同一支探针）**
+
+| 查询 | 结果 | 含义 |
+| --- | --- | --- |
+| `resolveMx(...)` | `route1/2/3.mx.cloudflare.net`，priority `91 / 6 / 63` | 入站管道就位。本机解析的**返回顺序是 3 → 1 → 2**，而投递看 priority 不看返回顺序，所以实际先试 `route2`。这组优先级数字由 Cloudflare 自己分配，**别把具体值当成通用答案去抄** |
+| `resolveTxt(apex)` | `v=spf1 include:_spf.mx.cloudflare.net ~all` | Cloudflare 补好了整条 SPF。因为开通前 apex 一条 TXT 都没有，这里不存在「两条 SPF 合并」那个常见坑 |
+| `resolveTxt(cf2024-1._domainkey)` | `v=DKIM1; h=sha256; k=rsa; p=…` | onboard 时连带写入，选择器确实是 `cf2024-1`。**它属于入站记录集，不等于开了发信方向**（§15.4） |
+| `resolveTxt(_dmarc...)` | 仍 `ERR ENOTFOUND` | **刻意为空，不是漏做**。DMARC 管的是「别人替我这个域发信时收信方怎么校验」，而本站永不以这个域名义发信（§15.4） |
+| `resolve4` / `resolve6` | `172.67.171.144` / `104.21.79.220` + 两条 IPv6 | 与开通前同一组 Cloudflare 代理 IP，站点没被碰到（§15.2） |
+| `resolveCname(apex)` | 仍 `ERR ENODATA` | 预期现象：apex 的 proxied CNAME 被展平成 A/AAAA 回答，查不到不等于记录丢了（§15.2） |
+
+三条结论：**开 Email Routing 没撞掉任何既有邮件服务**（本来就没有），**没动到站点**（两组 IP 相同），
+**页面上那个 `hi@` 现在确实能收信**——测试信从另一个邮箱发出、目标收件箱已成功收到，§11 第 9 项因此关闭。
+两张表得对照着读才有意义：开通前那张说明「收不到信不是缺陷，是还没有邮件服务的诚实状态」，开通后这张把它兑现掉。
+
+### 15.2 为什么 MX 碰不到 Pages 那条记录
+
+站点靠两条 proxied CNAME（`@` 与 `www` → `daily-event-logger.pages.dev`，§12.3 解绑时也是这两条）。
+Email Routing 加的是 **MX + TXT**：同名不同类型的记录在 DNS 里本来就并存，谁也不覆盖谁；
+橙云代理只作用于 A/AAAA/CNAME 这一类，**MX 从来不被代理**（Cloudflare 边缘不接 SMTP）。
+顺带一个容易误判的现象：apex 上 Cloudflare 把 CNAME 展平成 A/AAAA 回答，所以 `resolveCname` 查 apex **反而拿不到东西**，
+`ENODATA` 是预期内的，别以为记录丢了。开通后 `https://daily-event-logger.com` 仍由 Pages 服务，
+验收口径还是 §8.1 那套比字节的方法，不需要为邮件改动任何一条站点配置。
+
+还有一种「看起来像脏数据」的东西要提前知道：官方文档说，若某个 MX 指向被 Cloudflare 代理的主机名，
+控制台会自动插一条 `_dc-mx.<hash>.<domain>`，让发信方绕过代理直连源 IP。**日后 DNS 记录列表里冒出这种条目，
+那是 Cloudflare 自己的机制，不要手删**；真要清掉，走 §15.5 的解绑顺序让它自己收回去。
+
+### 15.3 控制台实操（六步，顺序有讲究）
+
+入口位置是个坑：**现在的目录是 Compute → Email Service → Email Routing**，网上大量截图还是老位置
+（zone 页面里的 Email 标签）。别照截图翻菜单，直接在控制台顶栏搜 `Email Routing`，
+或走 `https://dash.cloudflare.com/?to=/:account/email-service/routing`。前提是域名在这个账号的 Cloudflare DNS 上（本项目是，§7）。
+
+下面每步末尾的「实测」就是 2026-10-02 那一轮跑通时留下的值：控制台侧时刻未记，DNS 侧为 06:41Z 复验。
+
+1. **Onboard Domain**：选 `daily-event-logger.com`。这一步只加入站需要的记录 —— 三条 `route1/2/3.mx.cloudflare.net` 的 MX
+   （优先级由 Cloudflare 自己分配，别抄某个帖子里的具体数字）、根域一条 TXT `v=spf1 include:_spf.mx.cloudflare.net ~all`、
+   以及一条 DKIM TXT（选择器 `cf2024-1._domainkey`）。**只勾收件方向，不要顺手开 Sending**（§15.4）。 实测：onboard 完 DNS 里只多出 3 条 MX + 1 条 SPF TXT + 1 条 DKIM TXT，选择器就是 `cf2024-1`，没有别的记录被动过。
+2. **Destination Addresses → 填你的私人邮箱**，Cloudflare 往那个地址发验证邮件，去收件箱点 Verify。
+   没验证时建的规则是 disabled 状态，所以这步不能跳。目标地址是**账号级**的，可以在同账号多个域名间复用；
+   反过来也成立：**删掉目标地址会连带禁用所有指向它的规则**。 实测：验证邮件正常到达，点完状态是 `Verified`；之后建的规则直接为启用态，没遇到 disabled。
+3. **Routing Rules → Create routing rule**：`Email pattern` 只填 local part（`hi`），域名从下拉里选 —— 写成完整地址是常见错误；
+   `Action` 选 `Send to an email`；`Destination` 选第 2 步那个已验证地址。同一个 pattern 建两条以上时只有列表里排第一的那条生效，
+   所以别重复建。 实测：pattern 只填 `hi`、域名从下拉选、动作 `Send to an email`、Destination 指回第 2 步那个已验证地址。
+4. **复验 DNS**：跑 §14 的 4b，期望 MX/TXT 都出现。控制台 **Settings** 的 DNS records 区每条显示 `Locked` 或 `Unlocked`，
+   **两种状态都表示配置正确**，区别只是这条记录归不归 Email Service 管；想在 DNS > Records 里手动编辑，得先在那里 Unlock。
+   刚加完立刻查不到是常态：官方口径 Cloudflare DNS 上的域一般 5–15 分钟、最长 24 小时。 实测：本机在 onboard 之后一次复验就拿到了全部记录（06:41Z 那张表），没体验到最后 24 小时那一档；Settings 里那些 `Locked` 也没必要 Unlock，只收件不需要手改它们。
+5. **发测试信**：从**另一个邮箱**发到 `hi@daily-event-logger.com`，去目标收件箱确认（垃圾邮件夹也要看）。
+   必须换发件人：有些服务商直接把「发件人等于收件人」的邮件丢掉，用目标邮箱自己发给自己，测不出真东西。 **实测：这一步已通过** —— 从另一个邮箱发到 `hi@`，目标收件箱成功收到，且没落进垃圾邮件夹。它是整条链上唯一能证明「转发真的通」的验收：DNS 记录齐了不算数。
+6. **✅ 2026-10-02 已成立**：到这一步，页面上那枚「✉️ 写信」有了真收件人，**代码一行都没改过** —— 地址早就写死在 `src/utils/contact.js` 的 `CONTACT_EMAIL` 里，
+   面板只做拼 `href`（为什么它可以什么都不发，见 design.md 的 I37）。
+
+### 15.4 只做收件转发，不做代发信
+
+页面只有两条出口：`mailto:` 和 GitHub Issue。**本站永远不会以 `daily-event-logger.com` 的名义发出任何邮件**，
+所以发信方向上没有任何东西需要维护。据此：
+
+- 只 onboard Email **Routing**（入站 → 转发到已验证地址）。
+- 不开 Email **Sending**（beta 的出站代发）。它是另一套管道：记录加在 `cf-bounce.` 子域上，带 DKIM/DMARC/日配额/抑制列表/发送信誉，
+  开起来就等于给自己新增一项必须长期照看的负担，而我们没有发信需求。
+- 也不建「别名 → 同一别名」的规则，避免自环。要挡垃圾宁可显式用 `Drop` 动作，别靠转发绕圈。
+
+### 15.5 限额只看官方页，回退写成顺序，别名公开后必收垃圾
+
+限额：<https://developers.cloudflare.com/email-service/platform/limits/>（2026-10-02 抓到的值：每域 200 条路由规则、
+每账号 200 个目标地址、入站单封 ≤ 25 MiB、每个 zone 最多 30 个配置了邮件的域）。我们只用 1 条规则 + 1 个目标地址，
+量级与站点完全无关。**社区帖里流传的旧数字在这份官方页上找不到对应，别抄成自己的依据。**
+
+回退（顺序照抄，别跳步）：
+
+1. Routing Rules 里删掉 `hi` 那条规则 —— 地址立刻失效，站点不动；
+2. 需要的话再删 Destination 地址（会连带禁用引用它的其它规则，§15.3 第 2 步）；
+3. 彻底停：该域 Settings 里 **Disable Email Routing** 并确认 —— 它会把 Email Service 自己加的 MX/SPF/DKIM 一并撤掉；
+4. 站点不受任何影响：Pages 那条 proxied CNAME 不在这条链上（§15.2），也不涉及 §12.3 的解绑顺序。
+
+两个行为边界，写下来是为了以后不要「咦怎么不是这样」：
+
+- **转发不重写 From**。用户在邮件客户端点「回复」，收件人是**原发件人**，不是 `hi@`，所以别指望在别名里串一个长期线程；
+  面板里那句「打开的是本机邮件客户端」的提示就是为这个写的。要一个可回复、可公开追的线程，用同一个反馈面板里并列的另一条 —— GitHub Issue。
+- **地址公开 = 必收垃圾**，这是公开地址的物理性质，不是配置失误。现有护栏是结构性的：垃圾信只消耗目标邮箱的收件箱，
+  **永远进不了这个站点、也进不了任何用户数据**（服务器永不写用户数据，design.md 第一条承诺）。
+
+真被刷到不可用，换名字的成本压在一个常量里：改 `src/utils/contact.js` 的 `CONTACT_EMAIL` 一处 → 同步 `scripts/check-contact.mjs`
+里对该地址的期望（I37 的断言）→ 控制台把规则指向新地址。README 三语与 design.md 只描述「有一条邮箱别名」这件事、不含任何私人地址，所以不用跟着改。
+
+最后一条纪律，和 §11 第 9 项的红线是同一句话：**私人邮箱地址绝不进仓库、不进 git 历史、也不写进本文档**。
+转发关系只存在于控制台的 Destination 字段里。想自查有没有泄露，`git log -p` 管道给 `Select-String` 匹配 gmail / qq / 163 这类邮箱域，结果就该是空。
