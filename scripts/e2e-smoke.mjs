@@ -6,6 +6,9 @@
 //   npm run smoke -- --headed --keep --slow=60       有头 + 保留临时 profile + 每步慢放 60ms
 //   npm run smoke -- --no-sandbox                       CI/容器里 Chrome 起不来时加（同时带 --disable-dev-shm-usage）
 //   npm run smoke -- --lang=zh-CN --stop-at=2           换一个浏览器语言跑前两步：默认簿应叫「默认」且周一起始
+//   npm run smoke -- --url=https://<线上域名> --proxy=http://<出口代理>:<端口>
+//                                                  所在网络把线上站点拦成网关提示页时，让 Chrome 走代理复跑那 18 步。
+//                                                  代理值只走命令行参数或 SMOKE_PROXY 环境变量，主机名不进仓库。
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, existsSync, statSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -23,6 +26,12 @@ const arg = (name, dflt) => {
   return hit.slice(name.length + 3);
 };
 const num = (name, dflt) => { const v = Number(arg(name, NaN)); return Number.isFinite(v) ? v : dflt; };
+
+// 企业/校园网的出口网关会把线上站点换成一个拦截页，症状是 title 变成域名本身、data-build 为空、#root 无子节点。
+// 这时用所在网络的出口代理把 Chrome 的流量导出去，就能在办公网里直接验收线上产物。
+// 代理只影响 Chrome 的页面请求；CDP 仍走 127.0.0.1 直连，自带静态服务器也留在 bypass 列表里，所以本地跑法不受影响。
+const proxyArg = arg("proxy");
+const PROXY = typeof proxyArg === "string" && proxyArg ? proxyArg : (process.env.SMOKE_PROXY || null);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -506,12 +515,16 @@ const flags = [
   // 验证「中文浏览器上首屏自动建出『默认』簿」这类场景就传 --lang=zh-CN；不传时 headless Chrome 回退 en。
   arg('lang') ? '--lang=' + arg('lang') : null,
   arg('lang') ? '--accept-lang=' + arg('lang') : null,
+  // 走代理时显式保留 loopback bypass，免得自带静态服务器那条路也被导出去。
+  PROXY ? '--proxy-server=' + PROXY : null,
+  PROXY ? '--proxy-bypass-list=localhost,127.0.0.1,[::1]' : null,
   '--disable-renderer-backgrounding', '--disable-hang-monitor',
   arg('headed') ? null : '--headless=new',
   'about:blank',
 ].filter(Boolean);
 console.log('浏览器：' + chrome);
 console.log('临时 profile（等同一台没用过的机器）：' + profile);
+if (PROXY) console.log('出口代理：' + PROXY + '（只有页面请求经它出去，CDP 与自带静态服务器直连）');
 const proc = spawn(chrome, flags, { stdio: 'ignore' });
 const bootTarget = await waitForPageTarget(debugPort, 40000);
 const cdp = await connect(bootTarget);

@@ -194,6 +194,29 @@ smoke 步骤名一度写着「15-step」，脚本里实际已经是 18 步（新
 留一句提醒：改 `.github/workflows/*` 的提交必须带 `workflow` scope（§10 踩过的那堵墙），
 本地改完 ≠ 线上生效，必须 push 才算；这条改动和其余文件一起走同一次 push 即可。
 
+### 4.8 CI 摘要里「This deployment」那行是死链（未修，附实测）
+
+`Where to look` 那一步往 `$GITHUB_STEP_SUMMARY` 里写：
+
+```bash
+echo "This deployment: https://$GITHUB_SHA.$PROJECT_NAME.pages.dev"
+```
+
+2026-10-02 07:2x 本机经出口代理实测，**这个地址不存在**：
+
+| 取的值 | 结果 |
+| --- | --- |
+| `cffcd94.daily-event-logger.pages.dev`（短 SHA） | 404 / 16139 B / `title="Deployment Not Found"` |
+| `cffcd94bb652c6b407a8c3a7312e75c7cb3f4fb4.…pages.dev`（完整 SHA，也就是 `$GITHUB_SHA` 本身） | 同样 404，同一个页面 |
+| `ba0f626e.daily-event-logger.pages.dev`（本次 run 的 deployment id） | **200 / 1904 B / `title="每日事件记录器"`** |
+| `ba0f626e8.…pages.dev`（多一位） | 404 —— 所以上一行不是前缀巧合命中 |
+
+根因：本项目走 **Direct Upload**（`wrangler pages deploy dist`，见 §2 与 §6.2），部署子域用的是 Cloudflare 生成的 **deployment id**；`--commit-hash "$GITHUB_SHA"` 只把 SHA 记成这次部署的元数据，**不会**生出以 SHA 命名的 host——那是 git-integrated Pages 的行为，这里不适用。
+
+**为什么只记不修**：坑的只是摘要里那一行，站点本身无碍。要在 CI 里打印可用 URL，得在 deploy 之后现问 `npx wrangler pages deployment list --project-name "$PROJECT_NAME" --json`（`--json` 已确认存在），但「list 里最新那一条」**不保证就是本次 run 的那一记**：同一时间窗里有并发 push 时，它会把别人的部署指成本次的，比死链更误导（并发 push 真发生过，见 §13 `8f4f07c` 那两行）。要稳就得去解析 deploy 那步 wrangler 自己的 stdout，而那等于给发布路径加 `| tee` + `pipefail`——按 §4.3 的口径，不能为了摘要好看去动发布链路本身。真要修，留给它一次专门的 `workflow` scope 改动，和 §4.7 那类字符串修一起做。
+
+顺带一条正向结论：§0 立的「别信摘要、去 grep buildId」这套流程**跑得通**——同一次实取 `index-D4jMeCTm.js` → buildId `cffcd94b-20261002065939`，与浏览器首屏 `data-build` 同一个值。
+
 ---
 
 ## 5. Cloudflare 侧准备（为什么要 API token，而不是 Global Key）
@@ -541,6 +564,7 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
   错的是网络环境。同一套产物在 CI（GitHub Runner，不受公司网关约束）里 18 步全绿。
 - **影响面**：只有这台企业机。手机热点或等域名被重新分类就好。
 - **可选缓解**：在网关提示页点 Continue 放行一次；请 IT 加白；或者干脆不在本机打线上（验收以 CI 为准）。
+  **后半句已于 2026-10-02 07:20 作废**：`--proxy=` 让这台机器自己就能打线上，见本节末那两条。
 - **绕法（15:06 实测有效）**：同一份产物也挂在 `daily-event-logger.pages.dev`，那个域名不在公司网关的拦截名单里。
   要拿「线上全绿」这个结论时打 `--url=https://daily-event-logger.pages.dev`，别在 apex 上重试到怀疑人生。两者产物逐字节
   相同（§8.1），所以这个结论对 apex 同样成立。
@@ -551,10 +575,29 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
   node（第 1 条已经这么写了），并且别把 `Invoke-WebRequest` 的状态码当成站点的状态码。smoke 用 `--url=` 时走的是
   Chrome，Chrome 读 PAC，所以 apex 上那次 `C03` 拦截页确实来自代理链路：换成 `pages.dev` 只是让它少一跳。
 
+- **2026-10-02 07:20Z（本地 15:20）正解：让 Chrome 走所在网络的出口代理，本机就能对着 apex 跑完那 18 步。** 上面「干脆不在本机打线上（验收以 CI 为准）」那条作废。
+  落地点是 `scripts/e2e-smoke.mjs` 新增的 `--proxy=http://<host>:<port>`（等价地读环境变量 `SMOKE_PROXY`），
+  透传成 Chrome 的 `--proxy-server=`，并自动带上 `--proxy-bypass-list=localhost,127.0.0.1,[::1]` ——
+  只有页面请求经代理出去，CDP（127.0.0.1）和脚本自带的静态服务器仍然直连，**不传 `--proxy` 时本机跑法一字未变**（默认路径已回归：全绿）。
+  - **实测**：`npm run smoke -- --url=https://daily-event-logger.com --proxy=http://<host>:<port>` → `──────── 全部通过 ────────`，
+    首屏 `data-build="cffcd94b-20261002065939"`，和 §0 那三步（HTML grep asset 名 → 取 `index-D4jMeCTm.js` → grep buildId）拿到的值**同一个**。
+    其中闸门那一步「关掉再打开不残留上一次的手改草稿」是 ✓ —— 也就是 `cffcd94` 的修复第一次由这台企业机直接验到线上，不再只能靠 CI 单边证据。
+  - **同一个代理做纯抓取也成立**：`curl.exe -x http://<host>:<port>` 打三个 host 全部 200 / 1904 B / HTML sha256 同为 `f7f9e43f97331a5a…`
+    / `ssl_verify_result=0`。最后这一项是这条通道能不能当验收通道的前提：证书链在这条路径上验得过，说明代理没把证书换成企业自签 CA
+    （换了你看到的会是 curl exit code 60 而不是 200），所以验到的确实是 Cloudflare 返回的那一份，不是网关改写后的壳。
+  - **红线：代理主机名绝不进仓库。** 这个仓库是公开的（页面上那枚 Issue 链接就指向它），把内网出口拓扑写进 README 或 git 历史，
+    性质和私人邮箱同一条，属 §3.3 那次 scrub 的同一类。文档与脚本里只留机制，值一律走 `--proxy=` 参数或 `SMOKE_PROXY` 环境变量。
+- **别拿 `--lang=zh-CN` 跑完整 18 步**（这一手本轮在企业机线上和本机 dist 上各撞一次，值得写死）：第 3 步起的断言用的是英文字典，
+  换语言后第一条就红「找不到点击目标：`div / ⚙️ Settings`」，后面 15 条全是 `Cannot read properties of null` 的级联。
+  判据就是这组对照：**同一份 `--lang=zh-CN` 完整跑，本机与线上红的是同一批、同一顺序**，所以那 16 条与代理、与线上产物都无关，
+  是 flag 用错。限制在 design.md §10 那条里本来就写着（只到第 2 步），是我先没读，补在这里免得下一个人再踩。
+
 顺带四条同类经验（前三条是「本机网络 / 本地秒开 vs 真实用户视角」，第 4 条是「本机跑一千遍都绿、CI 上偶发红」）：
 
-1. 本机 `curl.exe` 会报 schannel `CRYPT_E_REVOCATION_OFFLINE`（吊销列表取不到），而 node `fetch` 正常。
-   **验证一律用 node**，别在 curl 上浪费时间。
+1. 本机 `curl.exe` **直连**会报 schannel `CRYPT_E_REVOCATION_OFFLINE`（吊销列表取不到），而 node `fetch` 正常，
+   所以当时写的结论是「验证一律用 node，别在 curl 上浪费时间」。**这条 2026-10-02 修正为只对直连成立**：
+   加上 `-x http://<host>:<port>` 走出口代理后 curl 一切正常（200 且 `ssl_verify_result=0`），一行就能把三个 host 的 HTML sha 比完，
+   反而是这条路上最顺的探针。别把工具一票否决，要区分的是「直连的 curl」和「走代理的 curl」。
 2. `git push` 偶发 `Failed to connect to github.com port 443`。**根因不是 GitHub，也不是「只能重试」，是 git 不走
    这台机器的代理**：`github.com` 的 DNS 被网关改写成 `20.27.177.113` 这类网关地址，直连它的 443 时通时不通
    （15:13Z 与 15:15Z 两次 push 都报这个错；15:19Z 再用 `Test-NetConnection github.com -Port 443` 测又 3/3 通）。
@@ -795,6 +838,10 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 06:52:40 → 06:54:02 | run `36975677582`（push `c6ee7a0..c107c33`，三笔：feat + 两份 docs） | `checks + build` 全绿，**`e2e smoke` 红一条**：「关掉再打开不残留上一次的手改草稿」实测拿到 `build=manual-EDIT / lang=zh`。`publish` 因此 `skipped`（`needs: [checks, browser-smoke]`），**线上原地停在 `c6ee7a0`，没上坏版本**。同一份代码本机连跑三次全绿：CI 的 headless Chrome 慢半拍，正好把那一帧抓到 |
 | 06:59:20 → 07:00:56 | run `36976221649`（`cffcd94`）三 job 全 success → **deployment `ba0f626e`** | 修复：`ContactDialog` 把 `draft` / `persisted` 的重置从 `useEffect` 挪到 render 期（React 官方的 adjusting-state 写法）。effect 在 commit 之后才跑，所以旧写法必然先绘制一帧上一次的草稿；smoke 那处等待条件也不再拿 `diag` 开头的 `build=` 当「面板打开好了」的信号，因为旧草稿同样以它开头，会把残留掩盖成通过。CI 上 publish 上传 4 个文件 + `_headers`，闸门第一次真的拦过一次上线 |
 | 07:0x | 本机打线上复跑远程 smoke，仍然拿回企业网关的拦截页 | 症状是 §9.3 那一条，不是应用：`title="daily-event-logger.com"`、54 个元素、`data-build=""`、`#root` 无子节点。所以线上这一手由「CI 三 job 全绿 + deployment `ba0f626e`」与浏览器点验承担，本机 curl / node fetch 那两条路的限制见本节上方与 §8.4 |
+| 07:16 → 07:19 | ❌ 第一次带代理打线上：16 条红，但**红的原因不是线上** | `--proxy=` 已经把应用完整跑起来了（不再是 §9 那张拦截页），16 条全是拿 `--lang=zh-CN` 跑完整 18 步的级联，头一条是「找不到点击目标：`div / ⚙️ Settings`」 |
+| 07:20 | ✅ **企业机第一次对着 apex 跑完那 18 步：全绿**（`npm run smoke -- --url=https://daily-event-logger.com --proxy=…`） | 首屏 `data-build="cffcd94b-20261002065939"`，与 §0 那三步从 `index-D4jMeCTm.js` grep 到的 buildId 同一个值；闸门那一步「关掉再打开不残留上一次的手改草稿」是 ✓ ⇒ `cffcd94` 的修复不再只有 CI 单边证据。上一行「本机打线上拿回拦截页」那条限制就此解除 |
+| 07:21 / 07:21 → 07:23 | 两组对照跑完，把上面两行的因果钉死 | ① 本机 dist 默认跑**全绿**：证明 `--proxy=` 不传时本机路径一字未变；② 本机 dist 带 `--lang=zh-CN` 跑 → 与线上红的**同一批、同一顺序**：证明 07:16 那 16 条与代理、与线上产物都无关，是 flag 用错（限制 design.md §10 本来就写着，只到第 2 步）。同一时刻 `curl.exe -x` 取三个 host：200 / 1904 B / HTML sha256 同为 `f7f9e43f97331a5a…` / `ssl_verify_result=0`——证书没被换成企业自签 CA，这条通道才敢当验收通道 |
+| 07:2x | 记下 §4.8：CI 摘要那行 `This deployment: https://$GITHUB_SHA.…pages.dev` 是**死链**（未修） | 短 SHA 与完整 SHA 都实测 404 `Deployment Not Found`，而 deployment id `ba0f626e.…pages.dev` 返回 200；Direct Upload 的子域是 CF 给的 id，不是 git SHA |
 
 ---
 
