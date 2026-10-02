@@ -19,7 +19,7 @@
 | www | https://www.daily-event-logger.com | 也是 `active`，但**与 apex 是两个不同 origin**（见 §11） |
 | Pages 默认域名 | https://daily-event-logger.pages.dev | 与正式域名是**同一份产物**，已逐字节比对（比的是 HTML 的 sha256 与同名 asset；口径与两个反例见 §8.1 / §8.5） |
 | 托管方式 | Cloudflare Pages，Direct Upload（纯静态） | 项目名 `daily-event-logger` |
-| 当前线上产物 | deployment 别名 `3b86a9c4`，来自 commit `71a45f3`（CI 于 2026-10-02T01:49:46Z 发布） | **别把这行当权威**——它每被一次新部署推后就自己作废（写下它的那一刻已经过期）：想知道线上是哪一版，按 §8.4 那三步从线上 HTML grep asset 名、再取那个 bundle grep buildId。首条 `8abb842e` 仍永久可访问 |
+| 当前线上产物 | **这行停止逐次维护**。上一手记录：deployment 别名 `3b86a9c4` ← commit `71a45f3`（CI 于 2026-10-02T01:49:46Z 发布） | 每次 push 都会发一份新部署，所以这行写下即过期，追平它只会造出下一记需要追平的提交。要知道线上是哪一版：按 §8.4 那三步从 HTML grep asset 名、再取那个 bundle grep buildId。首条 `8abb842e` 仍永久可访问 |
 | 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；每一次 run 的 id、耗时与产物变化都逐条记在 §13 时间线，别看这里的「最近一次」 |
 | 上线开关 | 仓库变量 `DEPLOY_ENABLED = true` | 改成 `false` 即停止自动上线 |
 | 域名 | Cloudflare Registrar 注册，`.com` | 2026-10-01 注册，2027-10-01 到期，**默认自动续费** |
@@ -461,7 +461,7 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
     线上 smoke 在 HEAD 的分离 worktree 里跑，构建号自报 `d2f5420f-20261001151631`（证明测的就是这次部署），
     18 步 196 条断言、0 红、全程 33 个请求方法分布 `{"GET":33}`。结论：**关掉不需要靠部署生效，部署也不会把它加回来**
     ——「注入发生在部署时」这条理论在本例双向都不成立。
-  - **关掉之后一共验到六个独立部署**（每个都对应一次真实发布）：`d2f5420` 的 `27ce420b`（15:20Z 取）、
+  - **关掉之后截至 2026-10-02 01:51Z 验到六个独立部署**（每个都对应一次真实发布；这行按时间封口，后面再取一手就照下面的三步加一行，别把它改成没有期限的「一共」）：`d2f5420` 的 `27ce420b`（15:20Z 取）、
     `1534725` 的 `6d7ce44f`（15:37Z 取）、`87c21e3` 的 `29da0643`（23:58Z 取）、`8f4f07c` 的 `4a1a8258`
     （2026-10-02 01:21Z 与 01:23Z 各取一次，数字一致）、`2a6ba8c` 的 `ffa0d4d2`（01:42Z 与 01:44Z 各取一次）、`71a45f3` 的 `3b86a9c4`（01:51Z 取）。
     **别拿 HTML 的 sha256 跨样本比**：它只在同一次部署内部当三 host 的相等判据，HTML 里写着 asset 名，换一次部署必变
@@ -787,6 +787,7 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 01:47:47 → 01:48 | ✅ push `71a45f3` 直连一发命中（整条命令 7.6 s，含 shell 启动） | 这记提交改的就是上一记提交刚写下的 §0 那行「当前线上产物」——那行每被一次新部署推后就自己作废，所以 §0 现在明写「别当权威，去 grep buildId」 |
 | 01:49:46 | run `36952660491`（`71a45f3`）三 job success，deployment `3b86a9c4` | 拿 publish job id 这一路又踩两回：`--json jobs --template` 把整数打成科学计数法（精度丢）、`--jq` 那条被 PowerShell 把转义引号原样交给 jq 而报 unexpected token；能用的是 `--json jobs` 管道给 node 取 `databaseId`，写法已进 §14 |
 | 01:51:21 | ✅ **第六次 beacon 复验** | 三个生产 host 加 `3b86a9c4` 预览 URL 共四个地址：全部 200 / **1904 B / 1802 字符** / 同一份 `index-BWxAoFWY.js` / HTML sha256 同为 `98a42e117c49272f…`；三个 beacon 标记全无、HTML 里 `https://` **0 次**；bundle 317164 B / sha `edd4a430…` / buildId `71a45f3e-20261002014827` / `StatsPanel-DhcOn2Dg.js`；`Strict-Transport-Security` 依旧没有 |
+| 01:56 | 定一条收口的规矩：**§0 那行不再逐次追平**，本节也只登记「有新增信息」的手 | 理由就在上一行那种自指：这一记提交唯一做的事，就是把「当前线上产物」改成不再逐次维护——它自己又要被下一次部署作废。往后线上复核只在这两种时候写进本节：真的改了行为（按 §8.4 第 ③ 步该不该重跑 smoke 同一个判据），或用户点名要一手证据。beacon 的样本数到此停在六手，措辞已按时间封口 |
 
 ---
 
