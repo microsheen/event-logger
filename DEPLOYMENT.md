@@ -19,7 +19,7 @@
 | www | https://www.daily-event-logger.com | 也是 `active`，但**与 apex 是两个不同 origin**（见 §11） |
 | Pages 默认域名 | https://daily-event-logger.pages.dev | 与正式域名是**同一份产物**，已逐字节比对（比的是 HTML 的 sha256 与同名 asset；口径与两个反例见 §8.1 / §8.5） |
 | 托管方式 | Cloudflare Pages，Direct Upload（纯静态） | 项目名 `daily-event-logger` |
-| 当前线上产物 | deployment 别名 `4a1a8258`，来自 commit `8f4f07c`（CI 于 2026-10-02T01:14:02Z 发布） | **别把这行当权威**：想知道线上是哪一版，按 §8.4 那三步从线上 HTML grep asset 名、再取那个 bundle grep buildId。首条 `8abb842e` 仍永久可访问 |
+| 当前线上产物 | deployment 别名 `ffa0d4d2`，来自 commit `2a6ba8c`（CI 于 2026-10-02T01:39:46Z 发布） | **别把这行当权威**：想知道线上是哪一版，按 §8.4 那三步从线上 HTML grep asset 名、再取那个 bundle grep buildId。首条 `8abb842e` 仍永久可访问 |
 | 发布通道 | GitHub Actions：`.github/workflows/ci-and-deploy.yml` | push master / PR / 手动 dispatch；每一次 run 的 id、耗时与产物变化都逐条记在 §13 时间线，别看这里的「最近一次」 |
 | 上线开关 | 仓库变量 `DEPLOY_ENABLED = true` | 改成 `false` 即停止自动上线 |
 | 域名 | Cloudflare Registrar 注册，`.com` | 2026-10-01 注册，2027-10-01 到期，**默认自动续费** |
@@ -336,9 +336,9 @@ https://rdap.org/domain/daily-event-logger.com
 | `/robots.txt` | 200 / 94 B | 相同 | 相同 |
 | `/favicon.svg` | 200 / 666 B | 相同 | 相同 |
 | `/icons/apple-touch-icon.png` | 200 / 2412 B | 相同 | 相同 |
-| `/assets/index-*.js`（每次部署都换名；本轮线上 = `index-qpNFktwK.js`，2026-10-02 01:23Z） | 200 / 317164 B | 相同 | 相同 |
+| `/assets/index-*.js`（每次部署都换名；本轮线上 = `index-DwypyhUL.js`，2026-10-02 01:44Z） | 200 / 317164 B | 相同 | 相同 |
 | `/assets/index-B0WePlwz.css` | 200 / 1776 B | 相同 | 相同 |
-| `/` 的 **sha256**（比字节数硬，理由见下） | `2953c0aa93dd49a4…` | 逐字相同 | 逐字相同 |
+| `/` 的 **sha256**（比字节数硬，理由见下） | `77ec1f3919e4f373…`（2026-10-02 01:44Z） | 逐字相同 | 逐字相同 |
 | 8 项安全头（键与值，清单见 §8.2） | 完全相等 | 完全相等 | 完全相等 |
 | `Cache-Control` | **与 `pages.dev` 不等**：`/sw.js` 的 `no-cache` 被换成 `max-age=14400` | 同 apex | `_headers` 声明值原样透传 |
 
@@ -351,7 +351,7 @@ https://rdap.org/domain/daily-event-logger.com
 **上面那行 asset 的文件名每次部署都会变，但「换名」既不等于「代码变了」，也不等于「内容没变」**——
 这两个方向都不能靠字节数推断，只能靠逐字节 diff。本轮拿两个真实产物对撞了一次：
 `664062ff`（`7233eef`，纯文档提交）的 `index-BrZKVFkz.js` 与 `4a1a8258`（`8f4f07c`，同样只动文档）的
-`index-qpNFktwK.js` **都是 317164 B，但 sha256 不同**（`a0f17f90…` vs `83dc384c…`）。把两个 buffer 对齐逐字节比，
+`index-qpNFktwK.js` **都是 317164 B，但 sha256 不同**（`a0f17f90…` vs `83dc384c…`）。2026-10-02 01:44Z 又拿到第三个同尺寸样本：`2a6ba8c` 的 `index-DwypyhUL.js` 仍是 **317164 B，sha256 却是 `fef7e32e…`**（buildId `2a6ba8c4-20261002013833`、按需块名 `StatsPanel-_DI73DEM.js`）——第三次证明「字节数相同」与「内容相同」互不蕴含。把两个 buffer 对齐逐字节比，
 只有 **6 处差异，归成两组**：
 
 - 一组是 `const Ma="…"`，即 `__BUILD_ID__` 被 `define` 编进 bundle（`vite.config.js`）：
@@ -461,13 +461,16 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
     线上 smoke 在 HEAD 的分离 worktree 里跑，构建号自报 `d2f5420f-20261001151631`（证明测的就是这次部署），
     18 步 196 条断言、0 红、全程 33 个请求方法分布 `{"GET":33}`。结论：**关掉不需要靠部署生效，部署也不会把它加回来**
     ——「注入发生在部署时」这条理论在本例双向都不成立。
-  - **关掉之后一共验到四个独立部署**（每个都对应一次真实发布）：`d2f5420` 的 `27ce420b`（15:20Z 取）、
+  - **关掉之后一共验到五个独立部署**（每个都对应一次真实发布）：`d2f5420` 的 `27ce420b`（15:20Z 取）、
     `1534725` 的 `6d7ce44f`（15:37Z 取）、`87c21e3` 的 `29da0643`（23:58Z 取）、`8f4f07c` 的 `4a1a8258`
-    （2026-10-02 01:21Z 与 01:23Z 各取一次，数字一致）。三 host 带浏览器式请求头每次都回到同一份
+    （2026-10-02 01:21Z 与 01:23Z 各取一次，数字一致）、`2a6ba8c` 的 `ffa0d4d2`（01:42Z 与 01:44Z 各取一次）。
+    **别拿 HTML 的 sha256 跨样本比**：它只在同一次部署内部当三 host 的相等判据，HTML 里写着 asset 名，换一次部署必变
+    （01:23Z 那手是 `2953c0aa93dd49a4…`、01:44Z 这手是 `77ec1f3919e4f373…`；前三手当时没算 sha，只断言了字节数与三个标记）。
+    三 host 带浏览器式请求头每次都回到同一份
     **1904 B / 1802 字符**，`data-cf-beacon` / `cloudflareinsights.com` / `cdn-cgi` 全无，**HTML 里的第三方
     URL 数为 0**，8 项安全头与 CSP hash `sha256-w0gKEdh…` 原样（`Strict-Transport-Security` 依旧没有，
     见 §8.2 待补那条）。其中 15:20Z 与 23:58Z 两次顺带重跑了线上 smoke（各 **196 ✓ / 0 ✗**、33 个请求全
-    `{"GET":33}`）；最后两次没重跑——那两记提交只动本文档，再打 18 步的边际信息是零。
+    `{"GET":33}`）；最后三次没重跑——那三记提交只动文档，再打 18 步的边际信息是零。
   - **⚠️ 推翻本节早先写下的一句**：我一度把 `7233eef` 的部署 `664062ff` 记成「00:19Z 复验过的第四个样本」，
     那是错的。`4a1a8258` 早在 **01:14:02Z** 就发布完成，所以 01:21Z 取到的那份 HTML 引用的已经是
     `index-qpNFktwK.js`（bundle 里 grep 到 buildId `8f4f07c2-20261002011247`），这次采样**归不到 `664062ff`
@@ -475,14 +478,14 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
     **不计入样本数**，只留这条更正。顺带把归因方法换成不依赖时序的：**从线上 HTML grep 出 asset 名，再取那个
     bundle grep buildId**——生产 host 上「谁在线」以 bundle 里的 buildId 为准，不以「CI 几点跑完」为准，
     上一版就是栽在这上面。
-  - 样本数就写四个，别写成「反复验证过很多次」。每次部署后照这三步跑，就能机械地再加一行：① 三 host 带浏览器式
+  - 样本数就写五个，别写成「反复验证过很多次」。每次部署后照这三步跑，就能机械地再加一行：① 三 host 带浏览器式
     请求头取 `/`，断言 1904 B、三个 beacon 标记全 false、HTML 里 `https://` 出现 0 次；② 从 HTML grep 出 asset
     名，取那个 bundle grep `"<commit 前 8 位>-<时间戳>"`，确认测的就是这次部署；③ 只有这一版真的改了行为时
     才重跑 `node scripts/e2e-smoke.mjs --url=…pages.dev`（为什么别打 apex，见 §9 第 1 条）。
 - **怎么确认真的关掉**：带浏览器式请求头再取一次 `/`，`data-cf-beacon` 应当消失、字节数回到 **1904**（与本机产物只差一个
   asset hash）；再 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.pages.dev`，应 18 步全绿（apex 若被公司
   网关拦，见 §9 的绕法）。**2026-10-01 15:06Z / 15:20Z / 23:58Z 已按此验过三次：
-  每次都是 196 条断言、0 红；后两次紧跟一次全新部署，见上面「实际结案」里那两个样本。**2026-10-02 01:21Z / 01:23Z 又按同一口径取了两次 HTML（归因到 `4a1a8258`），但没重跑 smoke：那两记提交只动文档。**
+  每次都是 196 条断言、0 红；后两次紧跟一次全新部署，见上面「实际结案」里那两个样本。**2026-10-02 01:21Z / 01:23Z / 01:42Z / 01:44Z 又按同一口径取了四次 HTML（前两次归因到 `4a1a8258`、后两次到 `ffa0d4d2`），但没重跑 smoke：那几记提交只动文档。**
 - **别用的歪路**：把 `static.cloudflareinsights.com` 加进 CSP 白名单能让控制台安静，但那等于亲手把
   「零第三方」的承诺改掉——要关的是注入，不是报警。
 
@@ -666,7 +669,7 @@ git push origin master      # 32c175b..062aacc
 | 4 | HSTS 缺失 | 无 `Strict-Transport-Security` | 首次访问仍可能被降级/改写（对企业网络尤其有意义） | `_headers` 加 `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`，或控制台开 HSTS |
 | 5 | **API token 在聊天里明文出现过** | 权限含 Pages:Edit + Zone DNS:Edit | 能重新部署这个站点、能改这两条 CNAME | 去控制台 **Roll**，然后只更新 GitHub 的 `CLOUDFLARE_API_TOKEN` secret（字符串变了不用重跑任何绑定） |
 | 6 | 历史里那条 Gmail + 域名自动续费 | `e9b0559` 的 author 是个人 Gmail；`.com` 默认自动续费（10.46 USD/年，2027-10-01 到期） | Gmail 已在公网历史里；续费不关的话明年会自己扣钱 | Gmail 要不要洗由你定：rewrite 会重放那条碰 workflow 的提交，**同样需要 `workflow` scope**（现在有了，随时可做）；续费开关建议现在就去看一眼 |
-| 7 | ~~关掉 zone 上的 Web Analytics 自动注入~~ **✅ 15:03 已关（Delete 站点属性）** | 曾经：apex / `www` 的 HTML 被插入 `static.cloudflareinsights.com/beacon.min.js`，执行被自家 CSP 拦下 | 现在：三 host 带浏览器式请求头都是 1904 B、无 beacon；线上 smoke 18 步 196 条断言全绿（§13 15:06）。「零第三方」不再靠 CSP 兜底；截至 2026-10-02 01:23Z 已验到四个独立部署样本（§8.4） | 复验口径见 §8.4 末尾。日后若要用 Web Analytics，走 **Manual setup**（自己粘 snippet），别再开自动注入 |
+| 7 | ~~关掉 zone 上的 Web Analytics 自动注入~~ **✅ 15:03 已关（Delete 站点属性）** | 曾经：apex / `www` 的 HTML 被插入 `static.cloudflareinsights.com/beacon.min.js`，执行被自家 CSP 拦下 | 现在：三 host 带浏览器式请求头都是 1904 B、无 beacon；线上 smoke 18 步 196 条断言全绿（§13 15:06）。「零第三方」不再靠 CSP 兜底；截至 2026-10-02 01:44Z 已验到五个独立部署样本（§8.4） | 复验口径见 §8.4 末尾。日后若要用 Web Analytics，走 **Manual setup**（自己粘 snippet），别再开自动注入 |
 | 8 | **`/sw.js` 的 `no-cache` 在 apex / `www` 上不算数**（2026-10-02 01:21Z 实测，见 §8.5） | `_headers` 写 `no-cache`，`pages.dev` 原样生效；自定义域名回 `max-age=14400`，连 `/registerSW.js`、`/robots.txt`、`/favicon.svg`、`*.png` 一起挂 4 小时；`/assets/*` 与 `manifest.webmanifest` 没被动 | 只碰 PWA shell 的更新路径，**碰不到任何数据**（事件/模板/簿/快照都在 IndexedDB 与镜像文件夹里，与 HTTP 缓存无关）；目前也没有它真的拖过更新的证据 | 先定归因：控制台 Speed → Optimization → Caching → **Browser Cache TTL** 的实际值（我这边没有 zone 的 API token，验不了）。要修：精准走 Rules → Cache / Transformation Rules，对 `starts_with request.uri "/sw.js"` 与 `/registerSW.js` 覆写 `Cache-Control: no-cache`；省事就把那个 TTL 调短，代价是全站静态资源跟着变。不修也行，但文档里再写「`sw.js` 是 no-cache」必须带上 §8.5 那句限定 |
 
 补充说明（不算决策，但要知道）：**中国大陆访问 Cloudflare 免费节点不稳定**是普遍现象，
@@ -776,7 +779,11 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | ≈01:12 | `8f4f07c` **由另一条并发 push 落地**，refs 追平 | 判据还是 refs：`git branch -vv` 里的 `ahead 1` 消失了。这记不是那条 8 击循环的成果，别写成「重试终于成功」——同一时间窗里有两条 push 在竞争，先落地的赢 |
 | 01:14:02 | run `36949804821` 三 job success，deployment `4a1a8258` | 纯文档提交，asset 照旧换名（`index-BrZKVFkz.js` → `index-qpNFktwK.js`）——正好这一条把下面两处口径打了个来回 |
 | 01:21 → 01:23 | ✅ 第四次 beacon 复验，顺带**推翻 / 补上五条口径** | ① **归因**：01:21Z 那份 HTML 引用的已经是 `4a1a8258` 的产物，我原先写的「`664062ff` 于 00:19Z 复验」不成立 → 样本重数、`664062ff` 除名，并改成按 bundle 里的 buildId 归因（§8.4）；② **内容**：`index-qpNFktwK.js` 与 `index-BrZKVFkz.js` **同为 317164 B 但 sha256 不同**（`83dc384c…` vs `a0f17f90…`），逐字节 diff 只有 6 处、全落在 buildId 与它派生的 `StatsPanel-*.js` 块名 ⇒「字节数相等」不再是有效证据（§8.1）；③ **相等判据**：apex / `www` 对 HTML **不发 `ETag`**，只有 `pages.dev` 发，所以三 host 比 HTML 只能自己算 sha256（同为 `2953c0aa93dd49a4…`）；④ **旧路径假象**：上一个部署的 asset 名在 apex / `www` 上返回 200 + 1904 B + `text/html`（SPA 回落），在 `pages.dev` 上仍是 317164 B 的历史 JS ⇒ 状态码不能证明产物存在（§8.1）；⑤ 把 4 处「9 项安全头」统一成 **8 项**（多出来那项一直是 `Cache-Control`），新增 §8.5 与 §11 第 8 条 |
-| 01:23:50 | 三 host 现状（本节的最后一手数据） | `/` 全部 200 / 1904 B / 1802 字符 / 同一份 `index-qpNFktwK.js`；`data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无，HTML 里 `https://` 出现 **0 次**；CSP hash 与 8 项安全头原样；`Strict-Transport-Security` **依旧没有**（§11 第 4 条未动） |
+| 01:23:50 | 三 host 现状（`4a1a8258` 那一版） | `/` 全部 200 / 1904 B / 1802 字符 / 同一份 `index-qpNFktwK.js`；`data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无，HTML 里 `https://` 出现 **0 次**；CSP hash 与 8 项安全头原样；`Strict-Transport-Security` **依旧没有**（§11 第 4 条未动） |
+| 01:38:13 → 01:38:19 | ✅ push `2a6ba8c` 直连一发命中，**5.1 s** | 那条 `spawn` + `taskkill /T /F /PID` 的循环（§9 第 2 条）第一次用在真 push 上就一记过；脚本与两份日志已删，脚手架不留仓库外 |
+| 01:39:46 | run `36951885721`（`2a6ba8c`）三 job success，deployment `ffa0d4d2` | 又是纯文档提交；publish 日志那句 `Deployment complete!` 只在 `gh run view --log --job <publishJobId>` 里出现 |
+| 01:42:23 / 01:44:06 | ✅ **第五次 beacon 复验**（同一版本取了两手，数字一致） | apex / `www` / `pages.dev` + `ffa0d4d2` 预览 URL 四个 URL 带浏览器式请求头各取 `/`：全部 200 / **1904 B / 1802 字符** / 同一份 `index-DwypyhUL.js` / HTML sha256 同为 `77ec1f3919e4f373…`；`data-cf-beacon`、`cloudflareinsights.com`、`cdn-cgi` 全无，HTML 里 `https://` **0 次**；bundle 317164 B / sha `fef7e32e…` / buildId `2a6ba8c4-20261002013833` / `StatsPanel-_DI73DEM.js`；`Strict-Transport-Security` 依旧没有（§11 第 4 条未动）|
+| 01:44 | 清场：`git worktree remove --force …\_smoke_wt` + 仓库外 7 个临时文件 | `git worktree list` 现在只剩主树。顺带一条实测口径：我图省事拿上一行输出的**最后一段**去当 asset 名，结果取到的是空的 HSTS 头，于是又打回上一个部署的 asset 路径 → **200 + 1904 B + `text/html`**，同一轮里第二次撞上 §8.1 那条「旧路径假象」——取样脚本要用命名变量，别按位置切片 |
 
 ---
 
