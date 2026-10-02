@@ -429,9 +429,18 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
     线上 smoke 在 HEAD 的分离 worktree 里跑，构建号自报 `d2f5420f-20261001151631`（证明测的就是这次部署），
     18 步 196 条断言、0 红、全程 33 个请求方法分布 `{"GET":33}`。结论：**关掉不需要靠部署生效，部署也不会把它加回来**
     ——「注入发生在部署时」这条理论在本例双向都不成立。
+  - **关掉之后一共验到第三个独立部署，两次追加复验同一结论**：`1534725` 的部署 `6d7ce44f`（CI 15:35:45Z 完成）
+    之后 15:37Z 取一次，`87c21e3` 的部署 `29da0643`（CI 19:09:46Z 完成）之后 23:58Z 取一次——三 host 带浏览器式请求头
+    每次都回到同一份 **1904 B / 1802 字符**，`data-cf-beacon` / `cloudflareinsights.com` / `cdn-cgi` 全无，
+    **HTML 里的第三方 URL 数为 0**，`_headers` 的 8 个响应头与 CSP hash `sha256-w0gKEdh…` 原样
+    （`Strict-Transport-Security` 依旧没有，见 §8.2 待补那条）。**23:58Z 那次顺手把线上 smoke 又打了一遍**
+    （HEAD 的 `--detach` worktree，零依赖）：`data-build="87c21e3f-20261001190814"`（对得上 `29da0643`）、
+    **196 条 ✓ / 0 条 ✗**、33 个请求 `{"GET":33}`。至此「部署不会把注入带回来」有**三个独立样本**，不再是一个——
+    但也只有三个，别写成「反复验证过很多次」。
 - **怎么确认真的关掉**：带浏览器式请求头再取一次 `/`，`data-cf-beacon` 应当消失、字节数回到 **1904**（与本机产物只差一个
   asset hash）；再 `node scripts/e2e-smoke.mjs --url=https://daily-event-logger.pages.dev`，应 18 步全绿（apex 若被公司
-  网关拦，见 §9 的绕法）。**2026-10-01 15:06Z 已按此验过：196 条断言、0 红。**
+  网关拦，见 §9 的绕法）。**2026-10-01 15:06Z / 15:20Z / 23:58Z 已按此验过三次：
+  每次都是 196 条断言、0 红；后两次紧跟一次全新部署，见上面「实际结案」里那两个样本。**
 - **别用的歪路**：把 `static.cloudflareinsights.com` 加进 CSP 白名单能让控制台安静，但那等于亲手把
   「零第三方」的承诺改掉——要关的是注入，不是报警。
 
@@ -449,6 +458,12 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
 - **绕法（15:06 实测有效）**：同一份产物也挂在 `daily-event-logger.pages.dev`，那个域名不在公司网关的拦截名单里。
   要拿「线上全绿」这个结论时打 `--url=https://daily-event-logger.pages.dev`，别在 apex 上重试到怀疑人生。两者产物逐字节
   相同（§8.1），所以这个结论对 apex 同样成立。
+- **2026-10-02 00:12Z 修正上面那条的归因**：`pages.dev` 能通不是因为「那个域名不在名单里」，而是这次请求
+  恰好没走代理。同一时刻 node `fetch`（直连、不读 PAC）取 apex 与 `www` 都是 **200 / `server: cloudflare` /
+  1904 B / 同一份 `index-DtlSh-MB.js` / 零 beacon**；`Invoke-WebRequest` 默认吃系统 PAC 兜底的 `PROXY 127.0.0.1:9000`，
+  对**同一个 apex URL** 返回 403。所以「换 host 就好」是巧合，真正要控制的是走不走代理——本机打线上一律用
+  node（第 1 条已经这么写了），并且别把 `Invoke-WebRequest` 的状态码当成站点的状态码。smoke 用 `--url=` 时走的是
+  Chrome，Chrome 读 PAC，所以 apex 上那次 `C03` 拦截页确实来自代理链路：换成 `pages.dev` 只是让它少一跳。
 
 顺带四条同类经验（前三条是「本机网络 / 本地秒开 vs 真实用户视角」，第 4 条是「本机跑一千遍都绿、CI 上偶发红」）：
 
@@ -468,7 +483,21 @@ Pages 对 SPA 做 history fallback：不存在的路径也回 `index.html`（HTT
      15:28Z 那条代理 push 一直挂着（15:31Z 的进程表里 `git-remote-https` 还在），最后是换直连才把提交发上去；
      15:30:18Z 我另发的一条代理 `ls-remote` 挂到 15:36Z，进程树 `43228→79660→34696→55180` 只能手杀。
      所以带 `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20`（20 s 内低于 1000 B/s 就中断），
-     才能拿到一次失败而不是把自己卡死。
+     能让**传输阶段**的停滞早点失败。**但它既管不住连接阶段，也不能保证「没推上去」——见下一条**。
+   - **`timeout` 只保护调用方，保护不了后台：本轮最贵的一个样本（`87c21e3` 的 push）**。为了把它推上去我跑了个
+     detached 重试循环：direct / proxy 交替，每击 `execFileSync('git', …, { timeout: 20000 })`，自己往
+     `_push_retry.log` 追加行。15:37:47Z 启动，逐击记录：`#1 direct FAIL 20008 ms`（`spawnSync` 报 `ETIMEDOUT`）
+     → `#1 proxy FAIL 18896 ms`（`Operation too slow`，这条说明 `lowSpeedTime` 在传输阶段真的生效了）
+     → `#2 direct FAIL 20009 ms` → **`#2 proxy FAIL 12509190 ms`**（git 自报 `Connection timed out after
+     12507567 ms`）→ `#3 direct FAIL 20027 ms` → **19:07:52Z 循环用 `git branch -vv` 判 LANDED**。三条结论：
+     - **纯连接挂住时 `http.lowSpeedTime` 不参与**（它量的是连上之后的传输速率），所以那一击实打实等了
+       **3 h 28 min**；能兜住它的只有调用方自己的超时。
+     - **调用方超时杀的是 `git.exe`，不是它的孙子 `git-remote-https`**：后者带着已协商好的会话继续在后台跑，
+       而 ref 最后就是被某次「已判失败」的调用留下的后台进程推上去的（指认不出是哪一次）——落地判定 19:07:52Z
+       距 `#2 proxy` 返回（≈19:07:15）只有 37 s，而**整个循环没有任何一击返回过成功**。
+       所以 **push 的返回值不是事实来源，refs 才是**：报失败后、重试前，先看 `git branch -vv` 里 `ahead`
+       有没有消失（或 `git ls-remote` 对 SHA），否则会重复推、或把已经成功的 push 误判成「远端坏了」。
+     - 重试循环必须**自带判据**（每击之后查 refs），不能只靠退出码决定要不要继续。
    - 代理参数只写成一次性 `-c http.proxy=http://127.0.0.1:9000`，**别 `git config --global http.proxy` 固化**：
      那个本地代理是公司机器上的进程，换网络或它没起来时，固化会把本来能直连的 push 全钉死。
    - **先分清报错类型**（这条不变）：`refusing to allow an OAuth App...` 是权限问题（见 §10）；
@@ -592,7 +621,7 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 
 ---
 
-## 13. 时间线（全部 UTC，2026-10-01）
+## 13. 时间线（全部 UTC，2026-10-01 → 10-02）
 
 | 时刻 | 事件 | 说明 |
 | --- | --- | --- |
@@ -641,6 +670,16 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 15:28 → 15:30 | 同一个代理参数这次**挂住不返回**，换直连 6 s 发上去（`d2f5420..d8b0d46`） | 推翻我 15:16 刚写下的「确定性绕法」：两条路各自都会抽。§9 第 2 条二次改写，改成「换路 + 必须带 `http.lowSpeedTime` 超时」，。挂死是常态而不是偶发：15:28Z 那条代理 push 到 15:31Z 进程表里还在，15:30:18Z 的代理 ls-remote 挂到 15:36Z 只能手杀 |
 | 15:16:14 → 15:18:04 | run `36882901568`（`d2f5420`，纯文档）三 job success | checks 15:16:14→15:16:38、smoke 15:16:40→15:17:30、publish 15:17:35→15:18:04，deployment `27ce420b`；只动 DEPLOYMENT.md，产物内容不变 |
 | 15:20 → 15:21 | ✅ 复验「新部署不会把 beacon 带回来」+ 线上 smoke 再全绿 | 三 host 1904 B / 零 `data-cf-beacon` / HTML 第三方 URL 数 0 / CSP 与 9 项安全头原样；分离 worktree 里跑 `--url=…pages.dev`，构建号 `d2f5420f-20261001151631`、18 步 196 条断言 0 红、33 个请求全 GET |
+| 15:31 → 15:36 | `d8b0d46`（被 concurrency 取消，**不产生部署**）与 `1534725` 两条 push 直连发上去；run `36885137193` 三 job success，deployment `6d7ce44f`（15:35:45Z） | 「部署不带回注入」的第二个样本：15:37Z 三 host 仍 1904 B / 零 `data-cf-beacon` |
+| 15:37:47 → 19:07:52 | `87c21e3` 的 push：**5 击全报失败，3 h 30 m 之后 refs 却落地了** | 见 §9 新增那条。`#2 proxy` 实际阻塞 **12,509 s**（纯连接挂住时 `lowSpeedTime` 不参与）；落地由某次「已判失败」调用留下的后台 `git-remote-https` 完成，**判据是 `git branch -vv`，不是返回值** |
+| 19:09:46 | run `36912005524`（`87c21e3`）三 job success，deployment `29da0643` | 只动 DEPLOYMENT.md，产物内容不变；CI 内 18 步 smoke 绿 |
+| 23:58 → 00:02 | ✅ 第三次复验 beacon + **线上 smoke 再全绿** | 三 host **1904 B / 零 `data-cf-beacon` / 零 `cdn-cgi` / HTML 第三方 URL 数 0**，`_headers` 8 个响应头与 CSP hash 原样；`--detach` worktree 里打 `…pages.dev`，`data-build="87c21e3f-20261001190814"`、**196 ✓ / 0 ✗**、33 个请求全 `{"GET":33}` |
+| 00:05:13 | `533f17c` **功能提交落 `master`**：事件新增可选的多行 `description`（13 文件 +243/−24） | push 走直连一次成功（6.9 s，带 `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=25`——§9 第 2 条那条「必须带超时」照办）。CI 的 checks 从 9 项变 **10 项**：新增 `desc:check` 并已并入 `npm run check`，所以 `npm run check` 绿 = 它也绿。**注意**：workflow 里那步的名字仍写着 9 项与旧清单，那是 cosmetic，碰 `.github/workflows/*` 要走 `workflow` scope，本轮没动 |
+| 00:05:37 → 00:07:26 | run `36944229048` 三 job success，deployment `8d73c584` | checks 00:05:39→00:06:03、smoke 00:06:05→00:06:53、publish 00:06:56→00:07:26；`gh run view --log --job` 才拿得到 wrangler 那句 `Deployment complete`，`gh api …/jobs/{id}/logs` 这条路这次只返回 100 B 错误体 |
+| 00:07:22 | 线上换上新 bundle `index-DtlSh-MB.js` | 三 host（apex / www / pages.dev）带浏览器式请求头各取一次：全部 **200 / 1904 B / 同一份 asset / 零 `data-cf-beacon` / HTML 第三方 URL 数 0 / CSP 297 B / 22 个响应头**；产物里 grep 到三语描述文案（`补充说明（可选）` / `Add a description (optional)` / `説明を追加（任意）`）与归一函数的 `
+?` 那条 replace，`data-build` 自报 `533f17c3-20261002000555`——文件名不能用来比对本机与 CI（§13 第 14:12 那条），要比的是内容 |
+| 00:09 → 00:10 | ✅ 线上 smoke（`--url=…pages.dev`）**18 步 211 条 ✓ / 0 条 ✗**、33 个请求全 GET | 比上一轮的 196 条多出的 15 条正是本轮新增的描述往返断言：留空也落键 `description:""`、tooltip 第三行逐字等于输入、条体正文不含描述、清空立刻生效、改名不丢描述、描述不出现在任何 URL 里 |
+| 00:12 | 纠正 §9「apex 被公司网关拦」的归因 | 拦的是**走不走代理**，不是主机名：node `fetch` 直连取 apex / www 都 200 且同一份产物，而 `Invoke-WebRequest`（默认吃系统 PAC → `127.0.0.1:9000`）对同一个 apex URL 给 403。这次没取到 403 正文，不能断言就是 Zscaler 的 `C03` 页，但结论够用：本机复验线上一律用 node，别拿 `Invoke-WebRequest` 的码下结论 |
 
 ---
 
