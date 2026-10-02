@@ -215,6 +215,14 @@ echo "This deployment: https://$GITHUB_SHA.$PROJECT_NAME.pages.dev"
 
 **为什么只记不修**：坑的只是摘要里那一行，站点本身无碍。要在 CI 里打印可用 URL，得在 deploy 之后现问 `npx wrangler pages deployment list --project-name "$PROJECT_NAME" --json`（`--json` 已确认存在），但「list 里最新那一条」**不保证就是本次 run 的那一记**：同一时间窗里有并发 push 时，它会把别人的部署指成本次的，比死链更误导（并发 push 真发生过，见 §13 `8f4f07c` 那两行）。要稳就得去解析 deploy 那步 wrangler 自己的 stdout，而那等于给发布路径加 `| tee` + `pipefail`——按 §4.3 的口径，不能为了摘要好看去动发布链路本身。真要修，留给它一次专门的 `workflow` scope 改动，和 §4.7 那类字符串修一起做。
 
+**2026-10-02 07:35Z 更新：权威 URL 其实已经在日志里了。** 本次 run `36979181749` 的 publish job 里，wrangler 自己打了一行：
+
+```
+✨ Deployment complete! Take a peek over at https://b382c120.daily-event-logger.pages.dev
+```
+
+所以「怎么拿到本次部署的可用地址」今天就有答案：读 publish job 日志那一行（`gh run view <id> --log` 里 grep `Deployment complete`），不必等 workflow 改。也正因如此，**最小修法是把摘要里那行死链删掉**——信息 wrangler 已经给了，一行删除、完全不碰发布路径；真要把它换成真值才需要 `deployment list --json` 或 `tee`+`pipefail`，而那两条的代价都写在上面。仍按「未修、留给专门的 `workflow` scope 改动」处理。
+
 顺带一条正向结论：§0 立的「别信摘要、去 grep buildId」这套流程**跑得通**——同一次实取 `index-D4jMeCTm.js` → buildId `cffcd94b-20261002065939`，与浏览器首屏 `data-build` 同一个值。
 
 ---
@@ -842,6 +850,10 @@ Delete Pages project（产物随之不可访问）→ 处理域名 → GitHub �
 | 07:20 | ✅ **企业机第一次对着 apex 跑完那 18 步：全绿**（`npm run smoke -- --url=https://daily-event-logger.com --proxy=…`） | 首屏 `data-build="cffcd94b-20261002065939"`，与 §0 那三步从 `index-D4jMeCTm.js` grep 到的 buildId 同一个值；闸门那一步「关掉再打开不残留上一次的手改草稿」是 ✓ ⇒ `cffcd94` 的修复不再只有 CI 单边证据。上一行「本机打线上拿回拦截页」那条限制就此解除 |
 | 07:21 / 07:21 → 07:23 | 两组对照跑完，把上面两行的因果钉死 | ① 本机 dist 默认跑**全绿**：证明 `--proxy=` 不传时本机路径一字未变；② 本机 dist 带 `--lang=zh-CN` 跑 → 与线上红的**同一批、同一顺序**：证明 07:16 那 16 条与代理、与线上产物都无关，是 flag 用错（限制 design.md §10 本来就写着，只到第 2 步）。同一时刻 `curl.exe -x` 取三个 host：200 / 1904 B / HTML sha256 同为 `f7f9e43f97331a5a…` / `ssl_verify_result=0`——证书没被换成企业自签 CA，这条通道才敢当验收通道 |
 | 07:2x | 记下 §4.8：CI 摘要那行 `This deployment: https://$GITHUB_SHA.…pages.dev` 是**死链**（未修） | 短 SHA 与完整 SHA 都实测 404 `Deployment Not Found`，而 deployment id `ba0f626e.…pages.dev` 返回 200；Direct Upload 的子域是 CF 给的 id，不是 git SHA |
+| 07:33:27 | ✅ push `874ba66` 直连一发命中（整条命令 6.1 s，含一次 `ls-remote`） | 判据照旧看 refs 不看返回码：`ls-remote` 从 `cffcd94` 变成 `874ba666…`，`git branch -vv` 的 `ahead 2` 消失。这一记与上一记 `0ff98fc` 一起上去，只动文档与测试脚本 |
+| 07:34:05 → 07:35:37 | run `36979181749`（`874ba66`）三 job 全 success → **deployment `b382c120`** | checks 07:34:05→07:34:29、smoke 07:34:31→07:35:11、publish 07:35:13→07:35:37。CI 里 18 步 smoke 绿；上一条 `cffcd94` 那次是真拦下过一次上线，这次是放行 |
+| 07:3x | ✅ **本机经代理复验新部署 + 在线上重跑 smoke：全绿** —— 「push → CI → 部署 → 本机验收」第一次在同一台企业机上闭环 | 三 host（apex / www / `pages.dev`）全部 200 / 1904 B / HTML sha256 同为 `a223cd2f9bc7c4a8…` / `ssl_verify_result=0`；asset 换成 `index-QuTmu9aS.js`（CSS 仍是 `index-B0WePlwz.css`）；bundle **大小仍是 330095 B**，sha256 从 `86f84517…` 变 `89736e94…`，差异只有 buildId 那一个串（`cffcd94b-20261002065939` → `874ba666-20261002073421`）⇒ **这一记确实没改产物内容**，只是构建号换了。deployment host `b382c120.daily-event-logger.pages.dev` 也 200 且与三 host 同一个 HTML sha（§4.8「子域是 deployment id 不是 git SHA」的正面样本）。最后 `npm run smoke -- --url=https://daily-event-logger.com --proxy=…` → `全部通过`，首屏 `data-build="874ba666-20261002073421"` |
+| 封口 | 本行之后那一记 push（就是写下这几行的提交自己）**不再单独登记一行** | 按 01:56 那条封口规矩：只动文档、产物内容不变（bundle 大小照旧 330095 B，只有 buildId 串会再换一次），不产生新信息。再记它就要为「记那一记」再发一记，无限自指 |
 
 ---
 
