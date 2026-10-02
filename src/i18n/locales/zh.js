@@ -88,6 +88,8 @@ export default {
     linkedNow: '已关联模板：',
     nameLabel: '事件名称',
     namePlaceholder: '输入事件名称...',
+    descLabel: '备注',
+    descPlaceholder: '补充说明（可选）...',
     categoryLabel: '类别',
     startLabel: '开始时间',
     endLabel: '结束时间',

@@ -1,6 +1,7 @@
 // 时间轴右键剪贴板（copy / cut / paste）的规则层：纯函数、无 React 依赖
 // 约定与 slotRange.js 一致：区间一律半开 [startSlot, endSlot)，端点是"槽位分界线"（0 … TOTAL_SLOTS）
 import { TOTAL_SLOTS } from './time.js';
+import { normalizeEventDescription } from './eventDescription.js';
 
 function asIntOr(value, fallback) {
   const n = Number(value);
@@ -12,7 +13,7 @@ function clampInt(value, lower, upper) {
   return Math.min(Math.max(Math.round(v), lower), upper);
 }
 
-// 把事件压成一份「与位置无关」的剪贴板快照：mode = 'copy' | 'cut'
+// 把事件压成一份「与位置无关」的剪贴板快照：mode = 'copy' | 'cut'；描述属于事件内容，跟着快照一起走
 // 名称为空、区间退化（零长或倒序）一律返回 null，宁可不给复制也不产生脏快照
 export function clipboardFromEvent(event, mode) {
   if (!event || (mode !== 'copy' && mode !== 'cut')) return null;
@@ -28,6 +29,7 @@ export function clipboardFromEvent(event, mode) {
     sourceId: event.id === undefined ? null : event.id,
     name: name,
     category: (typeof event.category === 'string' && event.category) ? event.category : 'work',
+    description: normalizeEventDescription(event.description),
     templateId: event.templateId === undefined ? null : event.templateId,
     duration: Math.min(duration, TOTAL_SLOTS),
   };

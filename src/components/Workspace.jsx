@@ -176,6 +176,7 @@ export default function Workspace({ books, backup, bookData, transfer, toast, sh
     }
     const eventData = {
       name: clipboard.name, category: clipboard.category, templateId: clipboard.templateId,
+      description: clipboard.description || '',
       date: targetDateStr, startSlot: range.startSlot, endSlot: range.endSlot,
     };
     if (clipboard.mode === 'cut' && events.some((e) => e.id === clipboard.sourceId)) {

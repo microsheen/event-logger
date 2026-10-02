@@ -88,6 +88,8 @@ export default {
     linkedNow: 'Linked template: ',
     nameLabel: 'Event name',
     namePlaceholder: 'Enter event name...',
+    descLabel: 'Description',
+    descPlaceholder: 'Add a description (optional)...',
     categoryLabel: 'Category',
     startLabel: 'Start time',
     endLabel: 'End time',

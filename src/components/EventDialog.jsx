@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { slotRangeLabel, slotToTime, TOTAL_SLOTS } from '../utils/time.js';
 import { CATEGORIES } from '../utils/categories.js';
+import { MAX_EVENT_DESC, normalizeEventDescription } from '../utils/eventDescription.js';
 import { useI18n } from '../i18n/index.jsx';
 import { sortTemplates } from '../utils/templateSort.js';
 import { useTemplateSort } from '../hooks/useTemplateSort.js';
@@ -26,6 +27,8 @@ const inputStyle = {
   borderRadius: 'var(--radius)', fontSize: '14px', transition: 'border-color 0.2s',
 };
 const selectStyle = { ...inputStyle, cursor: 'pointer' };
+// 描述是多行自由文本：宽度/边框沿用输入框，只放开纵向拉伸，字号行高跟着正文走
+const textareaStyle = { ...inputStyle, minHeight: '68px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 };
 const categoryBtnGroupStyle = { display: 'flex', gap: '8px' };
 const categoryBtnStyle = (active, cat) => ({
   flex: 1, padding: '10px', borderRadius: 'var(--radius)',
@@ -105,6 +108,8 @@ export default function EventDialog({ mode, initialData, templates, events, date
   const [startSlot, setStartSlot] = useState(initialData?.startSlot ?? 0);
   const [endSlot, setEndSlot] = useState(initialData?.endSlot ?? 1);
   const [templateId, setTemplateId] = useState(initialData?.templateId || null);
+  // 旧事件没有 description 键，读作空串
+  const [description, setDescription] = useState(initialData?.description || '');
 
   useEffect(() => {
     if (initialData) {
@@ -113,6 +118,7 @@ export default function EventDialog({ mode, initialData, templates, events, date
       setStartSlot(initialData.startSlot ?? 0);
       setEndSlot(initialData.endSlot ?? 1);
       setTemplateId(initialData.templateId || null);
+      setDescription(initialData.description || '');
     }
   }, [initialData]);
 
@@ -150,13 +156,15 @@ export default function EventDialog({ mode, initialData, templates, events, date
     if (!name.trim()) { alert(tr('dialog.errName')); return; }
     if (startSlot >= endSlot) { alert(tr('dialog.errEndAfterStart')); return; }
     if (conflictEvent) return;
-    onSave({ id: initialData?.id, name: name.trim(), category, date: dateStr, startSlot, endSlot, templateId });
+    onSave({ id: initialData?.id, name: name.trim(), category, date: dateStr, startSlot, endSlot, templateId,
+      description: normalizeEventDescription(description) });
   };
 
   const handleSaveAsTemplate = () => {
     if (!name.trim()) { alert(tr('dialog.errName')); return; }
     const template = onAddTemplate(name.trim(), category);
-    onSave({ id: initialData?.id, name: name.trim(), category, date: dateStr, startSlot, endSlot, templateId: template.id });
+    onSave({ id: initialData?.id, name: name.trim(), category, date: dateStr, startSlot, endSlot, templateId: template.id,
+      description: normalizeEventDescription(description) });
   };
 
   const timeOptions = [];
@@ -217,6 +225,12 @@ export default function EventDialog({ mode, initialData, templates, events, date
           <label style={labelStyle}>{tr('dialog.nameLabel')}</label>
           <input style={inputStyle} value={name} onChange={e => setName(e.target.value)}
             placeholder={tr('dialog.namePlaceholder')} autoFocus />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>{tr('dialog.descLabel')}</label>
+          <textarea style={textareaStyle} rows={3} maxLength={MAX_EVENT_DESC}
+            value={description} onChange={e => setDescription(e.target.value)}
+            placeholder={tr('dialog.descPlaceholder')} />
         </div>
         <div style={fieldStyle}>
           <label style={labelStyle}>{tr('dialog.categoryLabel')}</label>

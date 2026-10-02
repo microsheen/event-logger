@@ -354,7 +354,17 @@ function makeHelpers(cdp) {
     const got = await call('inputValue', sel);
     if (got !== text) throw new Error('输入未生效：' + sel + ' 期望 ' + JSON.stringify(text) + ' 实际 ' + JSON.stringify(got));
   }
-  return { expr, call, until, sleep, click, drag, type, spot, spotN, clickText, typeInto, move, down, up, slow };
+  // React 受控输入「整值替换」：走原生 value setter + input 事件，用来把已有内容清空（insertText 删不掉选区）
+  async function setValue(sel, text) {
+    const got = await expr('(function () { var el = document.querySelector(' + JSON.stringify(sel) + ');'
+      + ' if (!el) return { err: "no input " + ' + JSON.stringify(sel) + ' };'
+      + ' var d = Object.getOwnPropertyDescriptor(el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value");'
+      + ' el.focus(); d.set.call(el, ' + JSON.stringify(text) + ');'
+      + ' el.dispatchEvent(new Event("input", { bubbles: true }));'
+      + ' return { ok: true, value: el.value }; })()');
+    if (!got || got.err || got.value !== text) throw new Error('替换输入值失败：' + sel + ' ' + JSON.stringify(got));
+  }
+  return { expr, call, until, sleep, click, drag, type, spot, spotN, clickText, typeInto, setValue, move, down, up, slow };
 }
 
 
@@ -439,6 +449,7 @@ const zh = (await import('../src/i18n/locales/zh.js')).default;
 const { REASONS, PROTECTED_REASONS, MAX_SNAPSHOTS } = await import('../src/storage/snapshots.js');
 const { DB_NAME, DB_VERSION } = await import('../src/storage/idb.js');
 const { DEFAULT_BOOK_ID, LANG_WEEK_START, defaultBookName } = await import('../src/storage/books.js');
+const { slotRangeLabel } = await import('../src/utils/time.js');
 let BOOKS1 = null;
 let TODAY_STR = null;
 let BASE = null;
@@ -535,6 +546,8 @@ const BOOK = 'Smoke Book A';
 const BOOK2 = 'Smoke Book B';
 const EV_OLD = 'Alpha Standup';
 const EV_NEW = 'Alpha Standup edited';
+// 事件的可选描述：收尾的零存储复核把它和用户内容一起当泄露探针
+const EV_DESC = 'blocker: login flow needs the SSO token';
 const S1 = 6;
 const S2 = 9;
 
@@ -729,7 +742,11 @@ await step('拖一个真实鼠标手势建事件（slot ' + S1 + ' → ' + S2 + 
   await H.drag(await H.call('slot', TODAY_STR, S1), await H.call('slot', TODAY_STR, S2), 'slot ' + S1 + '→' + S2);
   await H.until(en.dialog.createTitle, () => H.call('has', en.dialog.createTitle), 10000);
   ok('弹出新建事件框', en.dialog.createTitle);
-  await H.typeInto('input[placeholder=' + JSON.stringify(en.dialog.namePlaceholder) + ']', EV_OLD);
+  const NAME_SEL = 'input[placeholder=' + JSON.stringify(en.dialog.namePlaceholder) + ']';
+  const TA_SEL = 'textarea[placeholder=' + JSON.stringify(en.dialog.descPlaceholder) + ']';
+  assert('弹窗里有可选的多行描述框，初值为空', (await H.call('inputValue', TA_SEL)) === '', JSON.stringify(await H.call('inputValue', TA_SEL)));
+  await H.typeInto(NAME_SEL, EV_OLD);
+  // 先走「描述留空」这条可选路径：等价于旧事件（没有内容），tooltip 不能因此多出一行
   await H.clickText('button', en.common.create);
   const bars = await H.until('事件条渲染', async () => {
     const l = await H.call('eventBars');
@@ -737,6 +754,12 @@ await step('拖一个真实鼠标手势建事件（slot ' + S1 + ' → ' + S2 + 
   }, 10000);
   assert('时段 = [' + S1 + ',' + (S2 + 1) + ')', bars[0].start === S1 && bars[0].end === S2 + 1, JSON.stringify(bars[0]));
   assert('标题显示在时间轴上', bars[0].text.includes(EV_OLD), bars[0].text);
+  // 悬停 tooltip（原生 title）是描述唯一的展示位：正文里绝不出现描述
+  const tipOf = async () => String(((await H.call('attrAll', '[data-event-id]', 'title')) || [])[0] || '');
+  const tipNoDesc = await tipOf();
+  assert('tooltip 首行 = 名称（类别）', tipNoDesc.split('\n')[0] === EV_OLD + ' (' + en.category.work + ')', tipNoDesc);
+  assert('tooltip 次行 = 区间', tipNoDesc.split('\n')[1] === slotRangeLabel(S1, S2 + 1), tipNoDesc);
+  assert('描述为空时 tooltip 仍是两行（旧事件不会多出空行）', tipNoDesc.split('\n').length === 2, tipNoDesc);
   EV_ID = bars[0].id;
   const seen = [];
   let liveRow = null;
@@ -753,6 +776,46 @@ await step('拖一个真实鼠标手势建事件（slot ' + S1 + ' → ' + S2 + 
   seen.forEach((s) => console.log(      '      · ' + s));
   console.log('    books: ' + JSON.stringify(((await H.call('idb', 'books')) || []).map((b) => b.name)) + '  active=' + JSON.stringify(await H.expr('localStorage.getItem("event-logger:active-book")')));
   assert('事件写进本机 IndexedDB（12 秒内）', !!liveRow, liveRow ? 'rev=' + liveRow.rev : '仍未落盘');
+  assert('描述留空也落键：description 是空串', liveRow.events[0].description === '', JSON.stringify(liveRow.events[0]));
+
+  // 描述往返：写 → 落盘 → 重开预填 → 清空 → 落回空串 → 再写回（后面「改名」步要用它验证保存不会覆盖描述）
+  const openBar = async (label) => {
+    const l = await H.call('eventBars');
+    await H.click({ x: l[0].x, y: l[0].y }, label);
+    await H.until(en.dialog.editTitle, () => H.call('has', en.dialog.editTitle), 10000);
+  };
+  const waitLiveDesc = (want, label) => until(async () => {
+    const row = await readLive(BOOKS1.id);
+    return row && row.events && row.events[0] && row.events[0].description === want ? row : null;
+  }, label);
+
+  await openBar('事件条（补描述）');
+  assert('编辑弹窗里描述框预填空串', (await H.call('inputValue', TA_SEL)) === '', JSON.stringify(await H.call('inputValue', TA_SEL)));
+  await H.typeInto(TA_SEL, EV_DESC);
+  await H.clickText('button', en.common.save);
+  await H.until('tooltip 长出描述行', async () => ((await tipOf()).split('\n').length === 3 ? true : null), 10000);
+  const tipWithDesc = await tipOf();
+  assert('tooltip 第三行逐字 = 描述', tipWithDesc.split('\n')[2] === EV_DESC, tipWithDesc);
+  assert('事件条正文里没有描述（只进 tooltip）', !((await H.call('eventBars'))[0].text.includes(EV_DESC)));
+  await waitLiveDesc(EV_DESC, '描述写进 IndexedDB');
+  ok('描述写进弹窗、tooltip 与 IndexedDB');
+
+  await openBar('事件条（重开查预填）');
+  assert('重开弹窗预填原描述', (await H.call('inputValue', TA_SEL)) === EV_DESC, String(await H.call('inputValue', TA_SEL)));
+  await H.setValue(TA_SEL, '');
+  await H.clickText('button', en.common.save);
+  await H.until('清空后 tooltip 收回两行', async () => {
+    const tp = await tipOf();
+    return tp.split('\n').length === 2 && !tp.endsWith('\n') ? true : null;
+  }, 10000);
+  await waitLiveDesc('', '清空描述落盘');
+  ok('清空描述立刻生效（保存恒写该键，展开合并不会残留旧值）');
+
+  await openBar('事件条（把描述写回）');
+  assert('清空后重开仍是空串', (await H.call('inputValue', TA_SEL)) === '', JSON.stringify(await H.call('inputValue', TA_SEL)));
+  await H.typeInto(TA_SEL, EV_DESC);
+  await H.clickText('button', en.common.save);
+  await waitLiveDesc(EV_DESC, '描述重新落盘');
 
   ok('事件已写进本机 IndexedDB');
 });
@@ -763,12 +826,14 @@ await step('需求① 零存储：所有请求都是同源 GET，用户内容一
   const withBody = httpReqs.filter((r) => r.postData || r.hasPostData);
   const leak = httpReqs.filter((r) => (r.url + ' ' + (r.postData || '')).includes(EV_OLD));
   const bookLeak = httpReqs.filter((r) => (r.url + ' ' + (r.postData || '')).includes(BOOK));
+  const descLeak = httpReqs.filter((r) => (r.url + ' ' + (r.postData || '')).includes(EV_DESC));
   console.log('    ' + httpReqs.length + ' 个请求：' + [...new Set(httpReqs.map((r) => r.url.replace(ORIGIN, '')))].join(' , '));
   assert('全部 GET（服务器收不到任何写入）', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(' | '));
   assert('零请求体', withBody.length === 0, withBody.map((r) => r.url).join(' | '));
   assert('零第三方（只有 ' + ORIGIN + '）', cross.length === 0, cross.map((r) => r.url).join(' | '));
   assert('URL 里没有事件名', leak.length === 0, leak.map((r) => r.url).join(' | '));
   assert('URL 里没有 EventBook 名', bookLeak.length === 0, bookLeak.map((r) => r.url).join(' | '));
+  assert('URL 里没有事件描述', descLeak.length === 0, descLeak.map((r) => r.url).join(' | '));
   assert('磁盘上的旧 data.json 没被动过', statOf(LEGACY_FILE) === legacyBefore, legacyBefore + ' → ' + statOf(LEGACY_FILE));
   assert('dist/ 没有被写入', distFingerprint() === distBefore, distBefore + ' → ' + distFingerprint());
 });
@@ -860,10 +925,15 @@ await step('需求③ 改内容 → 回放旧版本：整站只读', async () =>
   }, 10000);
   ok('事件被就地更新（id 不变）', after[0].id === EV_ID ? '同一条事件' : 'id 变了！');
   // 界面改了还不算，必须真的写进本机 IndexedDB（防「空写覆盖」）
-  await until(async () => {
+  const renamedRow = await until(async () => {
     const row = await readLive(BOOKS1.id);
     return row && row.events && row.events[0] && row.events[0].name === EV_NEW ? row : null;
   }, '改动落盘');
+  // 只改事件名也必须保住描述：保存路径恒写 description 键，不是「有才写」
+  assert('改名后描述原样保留', renamedRow.events[0].description === EV_DESC, JSON.stringify(renamedRow.events[0]));
+  const tipRenamedRows = await H.call('attrAll', '[data-event-id]', 'title');
+  const tipRenamed = String((tipRenamedRows || [])[0] || '');
+  assert('改名后 tooltip 仍带描述行', tipRenamed.split('\n').indexOf(EV_DESC) >= 0, tipRenamed);
   const beforeSnaps = await snapList(BOOKS1.id);
   await openHistory();
   await archiveNow();
@@ -1254,7 +1324,7 @@ await step('收尾：全程零存储复核', async () => {
   const nonGet = httpReqs.filter((r) => r.method !== 'GET');
   const cross = httpReqs.filter((r) => !r.url.startsWith(ORIGIN));
   const bodies = httpReqs.filter((r) => r.postData || r.hasPostData);
-  const needles = [EV_OLD, EV_NEW, BOOK, BOOK2];
+  const needles = [EV_OLD, EV_NEW, EV_DESC, BOOK, BOOK2];
   const leak = httpReqs.filter((r) => needles.some((n) => (r.url + ' ' + (r.postData || '')).includes(n)));
   console.log('    全程 ' + httpReqs.length + ' 个请求，方法分布：' + JSON.stringify(httpReqs.reduce((a, r) => { a[r.method] = (a[r.method] || 0) + 1; return a }, {})));
   assert('全程零非 GET', nonGet.length === 0, nonGet.map((r) => r.method + ' ' + r.url).join(' | '));

@@ -88,6 +88,8 @@ export default {
     linkedNow: '関連付け済み：',
     nameLabel: 'イベント名',
     namePlaceholder: 'イベント名を入力...',
+    descLabel: '説明',
+    descPlaceholder: '説明を追加（任意）...',
     categoryLabel: 'カテゴリ',
     startLabel: '開始時間',
     endLabel: '終了時間',

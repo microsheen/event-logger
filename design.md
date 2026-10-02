@@ -97,7 +97,7 @@ Cloudflare Pages：只有 dist/ 里的静态字节。没有数据库、没有会
 }
 ```
 
-`events` / `templates` 的行内结构沿用旧版（`id` / `name` / `category` / `date` / `startSlot` / `endSlot` / `templateId`；模板带可选 `createdAt` / `updatedAt`），**这一层本轮没有动**——旧 `data.json` 因此能整包导入，`rev` 从 1 起步。
+`events` 的行内结构是 `id` / `name` / `category` / `date` / `startSlot` / `endSlot` / `templateId` / `description`；模板是同一套身份字段加可选 `createdAt` / `updatedAt`——**模板没有 `description`**（I36）。`description` 是可选的多行自由文本（上限 500 字符，读写都过 `utils/eventDescription.js`）：存储层对事件对象整体透传，因此旧 `data.json`、旧快照、v1/v2 导入文件缺这个键时一律读作空串，**没有数据迁移**，`rev` 照旧从 1 起步；新写入的事件恒带该键（清空就是 `''`），因为 `updateEvent` 是展开合并，不落键就删不掉旧值。
 
 导出信封是 `v2`（`src/storage/legacy.js` 的 `toV2Envelope`）：`{ version: '2.0', books: [{ book, data, snapshots }] }`；`detectEnvelope` 同时认旧版单书裸 `{settings,events,templates}` 与 v1 信封，所以历史导出文件仍可导入。
 
@@ -271,8 +271,9 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 - 缩放的夹紧策略全在 `utils/slotRange.js`（纯函数）：不越过同日邻居（`neighbourBounds` 取 `prevEnd` / `nextStart`）、最短 1 槽、端点只在当前视口范围内移动；**已经越出视口的端点不会被强行拉回视口**（否则轻点一下就会跳变）。邻居墙与视口在按下时快照一次，拖动中不重算，避免墙跟着端点漂移。
 - `slotEventMap`（每槽位归属哪个事件，`useMemo` 派生）用于"落在已有事件上的槽位不可开始新建"。
 - 视口外的区间用 `visibleEvents = e.startSlot < end && e.endSlot > start` 过滤，绝对定位的 `top` 因此可能为负——依赖外层 `overflow: auto` 裁剪。
+- **悬停信息用原生 `title`**：事件条第一行 `名称（类别）`、第二行区间，描述非空时再追加一行描述；粘贴预览的幽灵块同样带这一行。**描述只在 tooltip 里出现**——条体正文永远只有事件名，窄槽位不会因为一句备注把排版挤坏，也不为此引入自定义浮层（那要额外的定位/层级/键盘可达性代码）。
 - **右键菜单**（`components/ContextMenu.jsx`）：事件条上右键 → `复制` / `剪切`；空白槽位上右键 → `粘贴`（剪贴板为空时**置灰但菜单照样出现**，让"这里能贴"这件事始终可见）+ `取消`（仅在有剪贴板时出现）。菜单 `position: fixed` + `zIndex 1200`，用 `useLayoutEffect` 实测自身宽高后把坐标夹回视口（贴右下缘就翻转）；document 级 `mousedown`/`contextmenu`/`wheel`/`resize`/`blur` 与 `Escape` 全挂关闭；条目在 **mousedown** 就动作——document 上的关闭监听比 `click` 先到，等 click 时本体已经卸载了。配套硬约束：`Timeline` 的三个 `onMouseDown`（拖空白新建 / 移动 / 边缘缩放）一律 `if (e.button !== 0) return`，否则右键会一边弹菜单一边启动拖拽、甚至同时弹出编辑弹窗。
-- **剪贴板语义**（`utils/eventClipboard.js` 纯函数 + `Workspace` 持有的一份内存态快照）：`copy` 只留快照，可反复粘贴，每次 `addEvent` 生成新 id；`cut` 是**延迟删除**——原事件留在原地但降到 `opacity .45` + 虚线左边框，真正的位移发生在 `paste` 那一刻，走 `updateEvent(sourceId, …)` 复用原 id（统计与 `updatedAt` 链不断），成功才清空剪贴板；空白菜单里的「取消」就是撤掉这份待粘贴状态。落点与同日其它事件重叠时**拒绝写入 + 自研 `Toast` 报错**（不自动避让、不弹对话框），与 §6.2「冲突即阻止」同口径。快照是纯内存态：不写 IndexedDB、不写 `localStorage`，刷新即空。
+- **剪贴板语义**（`utils/eventClipboard.js` 纯函数 + `Workspace` 持有的一份内存态快照）：`copy` 只留快照，可反复粘贴，每次 `addEvent` 生成新 id；`cut` 是**延迟删除**——原事件留在原地但降到 `opacity .45` + 虚线左边框，真正的位移发生在 `paste` 那一刻，走 `updateEvent(sourceId, …)` 复用原 id（统计与 `updatedAt` 链不断），成功才清空剪贴板；空白菜单里的「取消」就是撤掉这份待粘贴状态。落点与同日其它事件重叠时**拒绝写入 + 自研 `Toast` 报错**（不自动避让、不弹对话框），与 §6.2「冲突即阻止」同口径。快照字段固定为 `mode` / `sourceId` / `name` / `category` / `description` / `templateId` / `duration`：描述属于事件内容，`copy` 与 `cut` 都原样带走，粘贴出来的事件因此与源事件同描述（描述为空仍是合法快照——合法性判据只有名称非空 + 时长 ≥ 1）。快照是纯内存态：不写 IndexedDB、不写 `localStorage`，刷新即空。
 - **落点预览**：菜单打开期间在目标列画一个半透明幽灵块（`getPastePreviewStyle`），用的正是 `Workspace` 真实写入时同一对 `pasteRange` / `hasOverlap`，所以"看到哪就是贴到哪"；预计会冲突时整块转红（`--color-danger`）。周视图只把预览下发给被右键的那一列，不串台。滚动时间轴、切日期、切日/周视图、改视口范围都会立刻收起菜单——落点已经失效了。
 
 ### 6.2 事件弹窗 `components/EventDialog.jsx`
@@ -281,6 +282,7 @@ components ──► hooks ──► storage（纯函数 + IDB 读写） ──�
 - **模板走"双通道"**：一个下拉（创建模式叫"从历史事件选择"，编辑模式叫"关联模板"），选中后只回填 `name` + `category`，时间保持拖拽结果，并记下 `templateId`；不选则手填。同一个动作在编辑模式语义弱化为"重新关联"——因为共用成本高、歧义低。
 - 编辑态"存为模板"：以当前 name + category 建模板并绑定。`addTemplate` 对同名同类别是**幂等的**（命中则返回已存在项），因此可复用其返回值。
 - 模板排序为"双通道"：偏好为 `default` 时走**热度打分**（近 7 天 +3 / 21 天 +2 / 30 天 +1，只影响显示顺序），用户显式选了字段则与模板管理弹窗共用同一排序引擎（§8）。
+- **描述是可选的多行文本**，紧跟在事件名下面（`textarea rows={3}` + `maxLength={MAX_EVENT_DESC}`）：初值 `initialData?.description || ''`（旧事件没有这个键也照样打开），保存时过一遍 `normalizeEventDescription` 后**恒写 `description` 这个键**，空描述就是 `''`——否则 `updateEvent` 的展开合并会把上一次的描述留在行里删不掉。焦点仍然只给事件名（描述框不 `autoFocus`），`Escape` 等键盘行为不变。选模板只回填名称 + 类别，**不清空**已输入的描述；「存为模板」不把描述写进模板。描述不参与必填校验，也不参与冲突判定（照旧只有事件名 + `start < end`）。
 - 局部 state 用 `initialData` 派生 + `useEffect` 同步，卸载重建，避免跨事件脏状态。
 
 ### 6.3 统计面板 `components/StatsPanel.jsx`
@@ -403,16 +405,17 @@ npm run build             # 前端产物 → dist/（含 sw.js / manifest.webman
 npm run dev               # Vite 5173，/api 代理到 3002（只有迁移旧 data.json 时才需要后端）
 npm start                 # node server.js：只发静态文件 + 只读 legacy 探测，默认 3002（支持 PORT）
 
-npm run check             # 串起下面 9 项，任一失败退出码 1
+npm run check             # 串起下面 10 项，任一失败退出码 1
   i18n:check              #   三语字典一致性（以 zh 为基准：键集合 + 非空 + 占位符匹配）
   sort:check              #   模板排序引擎与时间戳规则（~70 条确定性断言）
   slotrange:check         #   边缘缩放夹紧（邻居墙/视口/最短时长 + 2040 组不变量扫描）
   clipboard:check         #   右键剪贴板（快照合法性/粘贴落点夹紧/重叠谓词 + 62640 组扫描）
+  desc:check              #   事件描述归一（脏类型/换行/控制字符/500 上限/幂等 + 读取侧缺键兼容）
   daydrop:check           #   跨日期落点（空闲窗口/位移最小夹紧/横向命中列 + 12960 组扫描）
   week:check              #   周口径（15372 组周窗口 + 2196 组 ISO 周号 + 月历前导格 + 统计档位）
   snapshot:check          #   快照策略（指纹/节奏/分层淘汰/上限，含 845 份留 500 份的模拟）
   book:check              #   EventBook store（设置守门/书名与文件名清洗/零本书自举的默认簿/v1+v2 信封/导入防撞）
-  imports:check           #   React 具名 API 是否都显式 import（46 文件 × 24 API）
+  imports:check           #   React 具名 API 是否都显式 import（48 文件 × 24 API）
 
 npm run csp:check         # index.html 内联脚本的 sha256 是否与 public/_headers 一致
 npm run smoke             # 无头 Chrome 端到端 18 步（详见 README）
@@ -497,6 +500,7 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | I33 | 镜像块正文只放「这个状态现在需要什么」：低频的整链重推必须待在「查看镜像文件夹」面板里，不占正文；「查看」是**只读列举** —— 只用 `getDirectoryHandle(create: false)` / `dir.entries()`，零创建、零写入、零打开文件内容，读到的东西只显示、绝不回填应用状态或当恢复来源；网页也唤不起资源管理器，因此**绝不**为了"打开文件夹"新增后端端点（那会同时破掉第 12 节的"零非 GET 请求 / 用户内容不进 URL / 服务器不存数据"） | `MirrorFolderView.jsx` + `folderBackup.listMirrorTree`；`book:check` 第 11 节（列举前后磁盘文件树完全一致、零 `create:true`、零 `getFileHandle`、limit 截断与脏值回落、缺目录降级成"还没写过副本"、异常吞掉不抛）；`smoke` 第 16 步断言正文无 `mirror-resync` / 展开后才有 / 收起后再消失、`aria-expanded` 与文案同步、每个控件都有 `title`、已连接那一行不会自相矛盾地写"未连接"、伪造句柄 + 两次重载零 JS 异常 |
 | I34 | `listBooks()` 读到空目录就**必须在同一个挂载周期内自举**一本 `id=default-book` 的本地化默认簿（书名 `book.defaultName`、语言取 `resolveInitialLang(null)`），界面里不存在"首启引导"这一屏；自举用的 id 固定，因此两个标签页并发冷启动也只会 `put` 同一行 | `useBooks.seedDefaultBook` + `storage/books.js` `makeDefaultBook`；`book:check` §4b（三语书名 / 非法或缺省语言回退 en / `weekStartsOn` / 时间轴 0-144 / `statsScope` / 同 `nowMs` 幂等）；`smoke` 第 2/3 步（首屏即周视图、IDB 里那本 `default-book` 的形状、改名后仍只有一本）与第 14 步（重载不再多出一本） |
 | I35 | 顶栏「❓ 使用帮助」是**只读内容入口**：`HelpDialog` 不经 `guardWrite`、不写任何 store，按钮**永不因 `locked` 置灰**（回放历史版本 / 他页正在编辑时照样能查说明）；开头两段工具介绍（`help.about`）与红色备份提醒（`help.warnLabel` / `help.warn`）也住字典、也在小节之前 | `Header.jsx` 的帮助按钮不读 `locked`；`smoke` 第 17 步断言顶栏三个按钮、八节 + 八个目录 chip、标题与逐节正文等于字典、开头介绍与备份提醒两段逐字等于字典且排在目录之前、切 zh 后正文换语言、`Escape` 与 ✕ 都关得掉；三语齐平由 `i18n:check` 守（`help` 段 55 键 × 3，字典文案禁含字面 `{` `}`） |
+| I36 | 描述（`description`）只存在于**事件**上：恒为字符串且 ≤ 500 字符，不进模板、不进统计、不参与排序与搜索，只在事件条的 tooltip 里出现；`copy` / `cut` 粘贴必须原样带走它；保存时恒写该键（清空就是空串），否则展开合并删不掉 | `utils/eventDescription.js` 的 `normalizeEventDescription` / `eventDescription`；`desc:check`（脏类型 / CRLF / 控制字符 / 500 上限 / 幂等）；`clipboard:check` §1b（快照带描述）；`smoke` 第 6 步（弹窗 → tooltip → IndexedDB 往返，清空立刻生效）与第 10 步（改名不丢描述） |
 
 ---
 
@@ -568,10 +572,10 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/App.jsx` | 123 | 组装 hooks、按 `activeBook.settings.language` 套 `I18nProvider`、渲染门（不支持 IDB / 书目加载中（含自举默认簿）/ 本书数据加载中 / `Workspace key=id`），外加自举也失败时的错误屏 + 「重试」 |
 | `src/main.jsx` | 16 | 挂载点 + 把 `BUILD_ID` 写进 `<html data-build>` |
 | `src/buildInfo.js` | 4 | 构建号的唯一出口（`__BUILD_ID__` 由 vite `define` 替换，缺值时退成 `unknown`） |
-| `src/components/Workspace.jsx` | 393 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）。它自己没有任何 `data-*`，测试锚点一律住在被测的面板组件里 |
+| `src/components/Workspace.jsx` | 394 | 唯一的"页面"：布局 + 全部 UI 态 + `guardWrite()`（回放/失去写者时的只读闸门）。它自己没有任何 `data-*`，测试锚点一律住在被测的面板组件里 |
 | `src/components/Header.jsx` | 192 | EventBook 下拉（切换 / 新建 / 簿设置 / 导出此簿 / 数据与备份：导出全部簿 + 导入为新簿 / 删除此簿）+ 常驻的隐藏 file input、语言、历史、模板、使用帮助 |
-| `src/components/Timeline.jsx` | 766 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览 |
-| `src/components/EventDialog.jsx` | 271 | 事件新建/编辑、冲突提示、模板选择与热度、存为模板 |
+| `src/components/Timeline.jsx` | 772 | 时间轴：拖拽新建/移动/跨日期/边缘缩放、右键菜单与落点预览、事件条与幽灵块的 `title`（名称/区间/描述） |
+| `src/components/EventDialog.jsx` | 285 | 事件新建/编辑（含可选描述）、冲突提示、模板选择与热度、存为模板 |
 | `src/components/StatsPanel.jsx` | 230 | 类别饼图、堆叠柱、排行榜（recharts，懒加载分包） |
 | `src/components/HistoryPanel.jsx` | 316 | 历史版本列表：reason 中文标签、预览、恢复（不可逆提示）、手删；工具栏＝立即存档 + 导出全部，外加镜像文件夹的"查看 + 修改"块（`data-mirror-state`）——正文只一行，细节全在按钮 `title` 里，已连接时给一行自动镜像节奏下拉；「重新镜像」不在正文，收在查看面板里 |
 | `src/components/MirrorFolderView.jsx` | 124 | 「查看镜像文件夹」面板：只读列举磁盘文件名（根目录 / 每本簿 / latest / snapshots），带刷新与收起，底部是折叠的整链重推 |
@@ -617,9 +621,10 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/utils/dayDrop.js` | 101 | 跨日期落点规则（空闲窗口 / 位移最小夹紧 / 横向命中列） |
 | `src/utils/slotRange.js` | 82 | 边缘缩放夹紧规则（邻居墙 / 视口 / 最短时长） |
 | `src/utils/templateSort.js` | 74 | 排序引擎（§8） |
-| `src/utils/eventClipboard.js` | 71 | 右键剪贴板规则（快照 / 粘贴落点夹紧 / 重叠谓词） |
+| `src/utils/eventClipboard.js` | 73 | 右键剪贴板规则（快照（含描述）/ 粘贴落点夹紧 / 重叠谓词） |
 | `src/utils/templates.js` | 50 | ISO 校验与时间戳读写 |
 | `src/utils/size.js` | 23 | 字节数可读化（历史面板显示快照体积） |
+| `src/utils/eventDescription.js` | 19 | 事件 `description` 的唯一规则层：`MAX_EVENT_DESC = 500`、`normalizeEventDescription`（非字符串→空串 / CRLF→LF / 只留 `\t` `\n` 的控制字符剥离 / 先截断再 trim / 幂等）、`eventDescription(event)` 读取侧访问器（I36） |
 | `src/utils/categories.js` | 9 | 类别元数据单一来源（key / CSS 变量 / hex / 图标） |
 
 ### `src/i18n/`、`src/styles/`
@@ -629,14 +634,14 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `src/i18n/core.js` | 98 | 翻译内核（**不 import React**）、`LANGS`、`detectLang`、`resolveInitialLang`、读写 localStorage |
 | `src/i18n/format.js` | 99 | `Intl` 日期/时长/星期 + 快照 reason 的中文标签；formatter 按 lang 缓存 |
 | `src/i18n/index.jsx` | 49 | `I18nProvider` / `useI18n` |
-| `src/i18n/locales/{zh,en,ja}.js` | 324 × 3（265 键，其中 `help` 段 55 键） | 三语文案，`zh` 为源语言 |
+| `src/i18n/locales/{zh,en,ja}.js` | 326 × 3（267 键，其中 `help` 段 55 键） | 三语文案，`zh` 为源语言 |
 | `src/styles/global.css` | 101 | CSS 变量、reset、滚动条、日文字体栈、拖拽期间的 `document.body` 光标类 |
 
 ### `scripts/`（lint 级 CI）
 
 | 文件 | 行数 | 断言面 |
 |---|---|---|
-| `scripts/e2e-smoke.mjs` | 1291 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗（顶栏入口 / 开头两段工具介绍与红色备份提醒逐字等于字典且排在目录之前 / 八节 / 目录跳节真的滚起来 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
+| `scripts/e2e-smoke.mjs` | 1360 | **真浏览器 18 步**：启动+构建号→零本书自举默认簿（书名与周开始日按浏览器语言推，`--lang=zh-CN` 可复跑中文场景）→改簿名与周口径→录入（含描述往返：弹窗 / tooltip / IndexedDB 三处一致，清空即生效）/拖动/缩放/右键→刷新→快照→回放→不可逆恢复→换书隔离→零第三方请求→CSP/SW/PWA→legacy 未迁移→顶栏瘦身（导出导入已进簿菜单、file input 不被菜单卸载、下拉键盘可达）→历史面板镜像块（`data-mirror-state` 契约 + 正文瘦身 + 每个控件都有 `title` + 节奏下拉只在已连接时出现，不碰系统弹窗）＋工具栏「导出全部」（只验结构，绝不点击，免得 headless 触发下载）+「查看镜像文件夹」（往 meta 里塞一个假句柄再重载，把状态机推到 on，验展开 / 刷新 / 收起与折叠的整链重推，读完即删掉，不碰真目录）→使用帮助弹窗（顶栏入口 / 开头两段工具介绍与红色备份提醒逐字等于字典且排在目录之前 / 八节 / 目录跳节真的滚起来 / 跟随界面语言 / Esc 与 ✕ 都关）→收尾零存储复核 |
 | `scripts/check-book-store.mjs` | 455 | 设置守门、书名与文件名清洗、零本书自举的默认簿（三语书名 / 固定 id / 默认值与 `makeBook` 同源 / 非法语言回退 / 幂等）、v1/v2 信封、导入防撞、文件夹整链重推（假句柄验 manifest/latest/snapshots/幂等）、镜像节奏与 `latest.json` 节流、查看面板的只读列举（零创建零写入、截断与脏 limit、缺目录与异常降级） |
 | `scripts/check-week-start.mjs` | 148 | 15372 组周窗口 + 2196 组周号 + 月历前导格 + 四档统计区间 |
 | `scripts/check-snapshot-policy.mjs` | 165 | 指纹、触发、分层淘汰、845 份留 500 份模拟 |
@@ -644,7 +649,8 @@ Actions 需要三个仓库级配置（Settings → Secrets and variables → Act
 | `scripts/check-csp-hash.mjs` | 50 | `index.html` 内联脚本 sha256 与 `_headers` 是否一致（I25） |
 | `scripts/check-day-drop.mjs` | 201 | 跨日期落点 + 12960 组扫描 |
 | `scripts/check-slot-range.mjs` | 133 | 边缘缩放 + 2040 组扫描 |
-| `scripts/check-event-clipboard.mjs` | 107 | 剪贴板规则 + 62640 组扫描 |
+| `scripts/check-event-clipboard.mjs` | 120 | 剪贴板规则 + 62640 组扫描（含描述随 `copy`/`cut` 快照走、脏描述归一、旧事件无该键读作空串） |
+| `scripts/check-event-desc.mjs` | 80 | 事件描述归一：脏类型→空串 / CRLF→LF / 控制字符剥离但留 `\t` `\n` / 首尾空白 trim / 恰好截到 500 / 幂等 + 读取侧缺键兼容 |
 | `scripts/check-template-sort.mjs` | 144 | 排序引擎 ~70 条确定性断言；基准时钟只取一次（断言不许重算 fixture 的期望时间戳） |
 | `scripts/check-i18n.mjs` | 72 | 三语键集合与占位符一致性 |
 | `scripts/make-icons.mjs` | 158 | 从 `favicon.svg` 生成 4 档 PWA 图标（无 sharp，自实现 PNG 编码） |

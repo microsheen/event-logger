@@ -5,6 +5,7 @@ import { neighbourBounds, resizeRange, boundarySlotFromY, EDGE_HANDLE_HEIGHT } f
 import { useI18n } from '../i18n/index.jsx';
 import { dayHeaderLabel } from '../i18n/format.js';
 import { pasteRange, hasOverlap } from '../utils/eventClipboard.js';
+import { eventDescription } from '../utils/eventDescription.js';
 import { freeWindowsForDay, clampMoveToFreeWindow, columnIndexOfX } from '../utils/dayDrop.js';
 import ContextMenu from './ContextMenu.jsx';
 
@@ -394,6 +395,8 @@ const DayColumn = React.memo(function DayColumn({ date, events, timelineStart, t
           const finalStyle = isCutPending
             ? { ...barStyle, opacity: 0.45, borderLeft: '3px dashed ' + getCategory(e.category).color }
             : barStyle;
+          // 描述只进 tooltip：条体正文仍只有事件名，窄槽位不会因为一句备注换行
+          const desc = eventDescription(e);
           return (
             <div key={e.id}
               data-event-id={e.id}
@@ -410,6 +413,7 @@ const DayColumn = React.memo(function DayColumn({ date, events, timelineStart, t
                 onEventContextMenu(e, ev.clientX, ev.clientY);
               }}
               title={e.name + ' (' + tr('category.' + e.category) + ')\n' + slotRangeLabel(shown.startSlot, shown.endSlot)
+                + (desc ? '\n' + desc : '')
                 + (isCutPending ? '\n' + tr('timeline.cutHint', { name: e.name }) : '')}
             >
               {e.name}
@@ -420,7 +424,9 @@ const DayColumn = React.memo(function DayColumn({ date, events, timelineStart, t
         })}
         {pastePreview && (
           <div style={getPastePreviewStyle(pastePreview, timelineStart)}
-            title={pastePreview.name + ' (' + slotRangeLabel(pastePreview.startSlot, pastePreview.endSlot) + ')\n' + pastePreview.hint}>
+            title={pastePreview.name + ' (' + slotRangeLabel(pastePreview.startSlot, pastePreview.endSlot) + ')'
+              + (pastePreview.description ? '\n' + pastePreview.description : '')
+              + '\n' + pastePreview.hint}>
             {pastePreview.name}
           </div>
         )}
@@ -600,6 +606,7 @@ export default function Timeline({ events, selectedDate, onCreateEvent, onEditEv
       dateStr: menu.dateStr,
       name: clipboard.name,
       category: clipboard.category,
+      description: clipboard.description || '',
       startSlot: range.startSlot,
       endSlot: range.endSlot,
       conflict: !!blocker,

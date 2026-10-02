@@ -1,10 +1,11 @@
-// 时间轴剪贴板规则检查：快照合法性 / 粘贴落点夹紧 / 重叠谓词（纯函数层，确定性断言）
+// 时间轴剪贴板规则检查：快照合法性（含描述随快照走）/ 粘贴落点夹紧 / 重叠谓词（纯函数层，确定性断言）
 // 用法：npm run clipboard:check
 import {
   clipboardFromEvent,
   pasteRange,
   hasOverlap,
 } from '../src/utils/eventClipboard.js';
+import { MAX_EVENT_DESC } from '../src/utils/eventDescription.js';
 import { TOTAL_SLOTS } from '../src/utils/time.js';
 
 const problems = [];
@@ -34,8 +35,8 @@ const DAY = '2026-09-22';
 const VIEW = { min: 36, max: 144 };   // 06:00 起视图
 
 // —— 1. 快照：只留与位置无关的内容，脏事件直接拒绝 ——
-jsonEq('copy 快照字段', clipboardFromEvent({ id: 'a', name: '  会议  ', category: 'life', startSlot: 40, endSlot: 46, templateId: 't' }, 'copy'),
-  { mode: 'copy', sourceId: 'a', name: '会议', category: 'life', templateId: 't', duration: 6 });
+jsonEq('copy 快照字段', clipboardFromEvent({ id: 'a', name: '  会议  ', category: 'life', startSlot: 40, endSlot: 46, templateId: 't', description: '  需求评审\r\n第二轮  ' }, 'copy'),
+  { mode: 'copy', sourceId: 'a', name: '会议', category: 'life', description: '需求评审\n第二轮', templateId: 't', duration: 6 });
 eq('cut 快照 mode', clipboardFromEvent(ev('a', DAY, 40, 46), 'cut').mode, 'cut');
 eq('cut 快照 sourceId', clipboardFromEvent(ev('a', DAY, 40, 46), 'cut').sourceId, 'a');
 eq('零长事件不快照', clipboardFromEvent(ev('a', DAY, 40, 40), 'copy'), null);
@@ -47,6 +48,14 @@ eq('缺 category 回落 work', clipboardFromEvent({ id: 'a', name: 'x', startSlo
 eq('缺 templateId 归 null', clipboardFromEvent({ id: 'a', name: 'x', startSlot: 1, endSlot: 2 }, 'cut').templateId, null);
 eq('无 id 事件 sourceId 为 null', clipboardFromEvent({ name: 'x', startSlot: 1, endSlot: 2 }, 'copy').sourceId, null);
 eq('超长区间时长封顶一整天', clipboardFromEvent({ id: 'a', name: 'x', startSlot: 0, endSlot: 999 }, 'copy').duration, TOTAL_SLOTS);
+// —— 1b. 描述：内容的一部分，跟着快照走，但绝不参与「这份快照能不能贴」的判据 ——
+eq('旧事件（无描述）快照为空串', clipboardFromEvent(ev('a', DAY, 40, 46), 'copy').description, '');
+eq('描述随 cut 快照一起走', clipboardFromEvent({ ...ev('a', DAY, 40, 46), description: '搬去明天' }, 'cut').description, '搬去明天');
+eq('描述过归一管线', clipboardFromEvent({ ...ev('a', DAY, 40, 46), description: '  第一段\r\n第二段\u0000 ' }, 'copy').description, '第一段\n第二段');
+eq('脏类型描述回落空串', clipboardFromEvent({ ...ev('a', DAY, 40, 46), description: 2026 }, 'copy').description, '');
+eq('超长描述截到上限', clipboardFromEvent({ ...ev('a', DAY, 40, 46), description: '长'.repeat(MAX_EVENT_DESC + 100) }, 'copy').description.length, MAX_EVENT_DESC);
+eq('空白描述仍是合法快照', clipboardFromEvent({ ...ev('a', DAY, 40, 46), description: '   ' }, 'copy') !== null, true);
+eq('描述救不了非法事件', clipboardFromEvent({ name: '  ', startSlot: 40, endSlot: 46, description: '有描述也没用' }, 'copy'), null);
 
 // —— 2. 落点：时长尽量保持，放不下就向前回夹 ——
 jsonEq('中段原样落点', pasteRange(payload(6), 50, VIEW), { startSlot: 50, endSlot: 56 });
@@ -92,9 +101,13 @@ eq('空事件数组无冲突', hasOverlap([], DAY, 40, 46, null), null);
 eq('非数组容忍为无冲突', hasOverlap(undefined, DAY, 40, 46, null), null);
 eq('脏事件（缺槽位）跳过', hasOverlap([null, { id: 'z' }, ev('d', DAY, NaN, NaN)], DAY, 40, 46, null), null);
 eq('非法落点区间返回 null', hasOverlap(same, DAY, 46, 40, null), null);
+const withDesc = { ...same[0], description: '有描述' };
+eq('带描述的事件照旧判冲突', hasOverlap([withDesc], DAY, 43, 44, null), withDesc);
+eq('描述不改变相邻口径', hasOverlap([withDesc], DAY, 46, 50, null), null);
 
 // —— 4. 与既有关键规则的一致性：相邻粘贴链不被剪贴板打破 ——
 const chain = [ev('x', DAY, 40, 44), ev('y', DAY, 44, 48)];
+jsonEq('带描述的快照照旧算落点', pasteRange(payload(6, { description: '备注' }), 50, VIEW), { startSlot: 50, endSlot: 56 });
 jsonEq('紧贴已有事件末尾粘贴合法', pasteRange(payload(4), 48, { min: 0, max: TOTAL_SLOTS }), { startSlot: 48, endSlot: 52 });
 eq('紧贴链尾粘贴无冲突', hasOverlap(chain, DAY, 48, 52, null), null);
 eq('压住链中判冲突', hasOverlap(chain, DAY, 42, 46, null), chain[0]);
@@ -104,4 +117,4 @@ if (problems.length) {
   problems.slice(0, 40).forEach((p) => console.error('  - ' + p));
   process.exit(1);
 }
-console.log('event clipboard check OK: 快照 / 落点夹紧 / 重叠谓词 + ' + sweep + ' 组不变量扫描');
+console.log('event clipboard check OK: 快照 / 描述随快照 / 落点夹紧 / 重叠谓词 + ' + sweep + ' 组不变量扫描');
